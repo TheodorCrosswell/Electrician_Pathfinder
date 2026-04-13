@@ -1,6 +1,6 @@
 <script lang="ts">
     import { project } from '$lib/store';
-    import Canvas from '$lib/Canvas.svelte';
+    import Canvas from '$lib/components/Canvas.svelte';
     import type { StageType } from '$lib/types';
 
     let canvasRef: Canvas;
@@ -46,14 +46,27 @@
         </div>
     </header>
 
-    <!-- ... Keep existing instructions and template below ... -->
     <div class="instructions">
         {#if $project.stage === 'SETUP'}
             <p>Upload an image, drag/resize it to fit, then click "Flatten & Lock".</p>
         {:else if $project.stage === 'STUBS'}
             <p><strong>Click</strong> to place conduit stubs. <strong>Drag</strong> to reposition. Select and press <strong>Delete</strong> to remove.</p>
+            <button 
+                class="btn danger" 
+                disabled={$project.stubs.length === 0}
+                on:click={() => project.update(p => ({...p, stubs: []}))}
+            >
+                Clear All
+            </button>
         {:else if $project.stage === 'OBSTRUCTIONS'}
             <p><strong>Click & Drag</strong> to draw red block-out zones. <strong>Click</strong> to resize or drag. Press <strong>Delete</strong> to remove.</p>
+            <button 
+                class="btn danger" 
+                disabled={$project.obstructions.length === 0}
+                on:click={() => project.update(p => ({...p, obstructions: []}))}
+            >
+                Clear All
+            </button>
         {:else if $project.stage === 'RESULTS'}
             <p>Paths calculated dynamically! Try clicking back to <em>Obstructions</em>, move a block-out, and return to see it reroute.</p>
         {/if}
@@ -111,6 +124,10 @@
     .primary { background: #2563eb; color: white; border: none; }
     .primary:hover:not(:disabled) { background: #1d4ed8; }
 
+    /* New CSS styling for the Clear buttons */
+    .danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+    .danger:hover:not(:disabled) { background: #fecaca; }
+
     .switcher {
         display: flex;
         background: #f3f4f6;
@@ -131,12 +148,17 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
+    /* Converted to a flex container so the button aligns nicely on the right */
     .instructions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         padding: 1rem;
         background: #eff6ff;
         border-left: 4px solid #3b82f6;
         border-radius: 4px;
         margin-bottom: 2rem;
+        min-height: 48px;
     }
 
     .instructions p { margin: 0; color: #1e3a8a; }

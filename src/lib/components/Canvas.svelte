@@ -26,7 +26,7 @@
         if (rawImageNode) {
             tr.nodes([]);
             uiLayer.batchDraw();
-            const dataUrl = mainLayer.toDataURL(); 
+            const dataUrl = mainLayer.toDataURL({ pixelRatio: 1 });
             rawImageNode.destroy();
             rawImageNode = null;
             project.update(p => ({ ...p, image: dataUrl, rawImage: null, stage: 'STUBS' }));
@@ -82,7 +82,6 @@
             img.onload = () => {
                 const bgNode = new Konva.Image({ image: img, name: 'flattened', x: 0, y: 0, width: 800, height: 600 });
                 bgLayer.add(bgNode);
-                bgNode.moveToBottom();
                 bgLayer.batchDraw();
             };
         }

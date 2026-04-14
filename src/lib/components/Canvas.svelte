@@ -6,7 +6,7 @@
     import { v4 as uuidv4 } from 'uuid';
     import { project } from '$lib/store';
     import { calculatePaths } from '$lib/pathfinder';
-    import type { ProjectState } from '$lib/types';
+    import type { ProjectState, Stub } from '$lib/types';
 
     let container: HTMLDivElement;
     let stage: Konva.Stage;
@@ -66,6 +66,7 @@
     function syncStateToCanvas(state: ProjectState) {
         if (!stage) return;
 
+        // ... (Background processing stays the same) ...
         if (state.stage === 'SETUP' && state.rawImage && !rawImageNode) {
             const img = new window.Image();
             img.src = state.rawImage;
@@ -111,7 +112,10 @@
             }
         });
 
-        const existingStubs = mainLayer.find('.stub');
+        // Clean up legacy flat-stub nodes if they somehow hang around
+        mainLayer.find('.stub').forEach(n => n.destroy());
+
+        const existingStubs = mainLayer.find('.stub-group');
         existingStubs.forEach(node => {
             if (!state.stubs.find(s => s.id === node.id())) {
                 if (tr.nodes().includes(node as Konva.Node)) tr.nodes([]);
@@ -120,16 +124,36 @@
         });
         
         state.stubs.forEach(stub => {
-            let node = mainLayer.findOne('#' + stub.id);
-            if (!node) {
-                node = new Konva.Circle({
-                    id: stub.id, x: stub.x, y: stub.y, radius: 10,
-                    fill: '#3b82f6', draggable: true, name: 'stub'
+            let group = mainLayer.findOne('#' + stub.id) as Konva.Group;
+            const labelText = stub.isBox ? stub.runId : `${stub.runId}-${stub.index}`;
+
+            if (!group) {
+                group = new Konva.Group({
+                    id: stub.id, x: stub.x, y: stub.y,
+                    draggable: true, name: 'stub-group'
                 });
-                node.on('dragend', () => updateStub(stub.id, node as Konva.Node));
-                mainLayer.add(node as Konva.Shape);
+
+                if (stub.isBox) {
+                    group.add(new Konva.Rect({
+                        x: -12, y: -12, width: 24, height: 24, fill: '#f59e0b', name: 'shape'
+                    }));
+                } else {
+                    group.add(new Konva.Circle({
+                        radius: 10, fill: '#3b82f6', name: 'shape'
+                    }));
+                }
+
+                group.add(new Konva.Text({
+                    text: labelText, x: 14, y: -14,
+                    fontSize: 16, fontFamily: 'sans-serif', fontWeight: 'bold', fill: '#1f2937', name: 'label'
+                }));
+
+                group.on('dragend', () => updateStub(stub.id, group));
+                mainLayer.add(group);
             } else {
-                node.setAttrs({ x: stub.x, y: stub.y, draggable: isInteractive });
+                group.setAttrs({ x: stub.x, y: stub.y, draggable: isInteractive });
+                const textNode = group.findOne('.label') as Konva.Text;
+                if (textNode) textNode.text(labelText);
             }
         });
 
@@ -141,11 +165,7 @@
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
                 const line = new Konva.Line({
-                    points: flatPath,
-                    stroke: '#10b981',
-                    strokeWidth: 4,
-                    lineJoin: 'round',
-                    tension: 0
+                    points: flatPath, stroke: '#10b981', strokeWidth: 4, lineJoin: 'round', tension: 0
                 });
                 pathLayer.add(line);
             });
@@ -158,20 +178,60 @@
         const state = get(project);
         if (state.stage === 'RESULTS') return;
 
-        if (e.target === stage || e.target.name() === 'bg' || e.target.name() === 'flattened') {
+        let target = e.target;
+        let isBg = target === stage || target.name() === 'bg' || target.name() === 'flattened';
+
+        if (isBg) {
             tr.nodes([]); 
             
             if (state.stage === 'STUBS') {
                 const pos = stage.getPointerPosition();
                 if (!pos) return;
-                project.update(p => ({
-                    ...p,
-                    stubs: [...p.stubs, { id: uuidv4(), x: pos.x, y: pos.y, type: 'stub' }]
-                }));
+                
+                project.update(p => {
+                    const runId = p.currentRunId || 'A';
+                    const runType = p.currentRunType || 'DAISY_CHAIN';
+                    const runStubs = p.stubs.filter(s => s.runId === runId);
+                    
+                    let isBox = false;
+                    let index: number;
+
+                    if (runType === 'HOME_RUN') {
+                        if (!runStubs.some(s => s.isBox)) {
+                            isBox = true;
+                            index = 0;
+                        } else {
+                            const stubsOnly = runStubs.filter(s => !s.isBox);
+                            index = stubsOnly.length > 0 ? Math.max(...stubsOnly.map(s => s.index)) + 1 : 1;
+                        }
+                    } else {
+                        index = runStubs.length > 0 ? Math.max(...runStubs.map(s => s.index)) + 1 : 1;
+                    }
+
+                    const newStub: Stub = {
+                        id: uuidv4(), x: pos.x, y: pos.y, type: 'stub',
+                        runId, runType, index, isBox
+                    };
+
+                    return { ...p, stubs: [...p.stubs, newStub] };
+                });
             }
         } else {
-            if (e.target.name() !== 'rawImage' && state.stage !== 'OBSTRUCTIONS' && state.stage !== 'STUBS') return;
-            tr.nodes([e.target]);
+            if (target.name() !== 'rawImage' && state.stage !== 'OBSTRUCTIONS' && state.stage !== 'STUBS') return;
+            
+            // Route selections through grouped stubs
+            let nodeToTransform: Konva.Node = target;
+            if (nodeToTransform.parent && nodeToTransform.parent.name() === 'stub-group') {
+                nodeToTransform = nodeToTransform.parent;
+            }
+
+            if (nodeToTransform.name() === 'rawImage' || nodeToTransform.name() === 'obstruction') {
+                tr.nodes([nodeToTransform]);
+                tr.enabledAnchors(['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left']);
+            } else if (nodeToTransform.name() === 'stub-group') {
+                tr.nodes([nodeToTransform]);
+                tr.enabledAnchors([]); // No resize anchors on stubs
+            }
         }
     }
     
@@ -252,7 +312,7 @@
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const nodes = tr.nodes();
             if (nodes.length > 0) {
-                const id = nodes[0].id();
+                const id = nodes[0].id(); // Matches our stub-group ID!
                 tr.nodes([]);
                 project.update(p => ({
                     ...p,
@@ -267,13 +327,5 @@
 <div class="canvas-wrapper" bind:this={container}></div>
 
 <style>
-    .canvas-wrapper {
-        width: 800px;
-        height: 600px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        border: 2px solid #e5e7eb;
-        border-radius: 8px;
-        overflow: hidden;
-        background: #fff;
-    }
+    .canvas-wrapper { width: 800px; height: 600px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
 </style>

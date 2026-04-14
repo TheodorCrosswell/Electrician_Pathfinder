@@ -18,6 +18,16 @@
         reader.readAsDataURL(file);
     }
 
+    async function loadTestImage() {
+        const response = await fetch('/test-floorplan.jpg');
+        const blob = await response.blob();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            project.update(p => ({ ...p, rawImage: e.target?.result as string }));
+        };
+        reader.readAsDataURL(blob);
+    }
+
     function setStage(stage: StageType) {
         project.update(p => ({ ...p, stage }));
     }
@@ -29,6 +39,7 @@
         
         <div class="toolbar">
             {#if $project.stage === 'SETUP'}
+                <button class="btn" on:click={loadTestImage}>Use Test Image</button>
                 <label class="btn file-btn">
                     Upload Floorplan
                     <input type="file" accept="image/*" on:change={handleFileUpload} hidden />

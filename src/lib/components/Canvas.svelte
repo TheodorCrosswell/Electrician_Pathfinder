@@ -66,7 +66,6 @@
     function syncStateToCanvas(state: ProjectState) {
         if (!stage) return;
 
-        // ... (Background processing stays the same) ...
         if (state.stage === 'SETUP' && state.rawImage && !rawImageNode) {
             const img = new window.Image();
             img.src = state.rawImage;
@@ -112,7 +111,6 @@
             }
         });
 
-        // Clean up legacy flat-stub nodes if they somehow hang around
         mainLayer.find('.stub').forEach(n => n.destroy());
 
         const existingStubs = mainLayer.find('.stub-group');
@@ -219,7 +217,6 @@
         } else {
             if (target.name() !== 'rawImage' && state.stage !== 'OBSTRUCTIONS' && state.stage !== 'STUBS') return;
             
-            // Route selections through grouped stubs
             let nodeToTransform: Konva.Node = target;
             if (nodeToTransform.parent && nodeToTransform.parent.name() === 'stub-group') {
                 nodeToTransform = nodeToTransform.parent;
@@ -231,6 +228,17 @@
             } else if (nodeToTransform.name() === 'stub-group') {
                 tr.nodes([nodeToTransform]);
                 tr.enabledAnchors([]); // No resize anchors on stubs
+                
+                // Select the run of the clicked stub
+                const stubId = nodeToTransform.id();
+                const clickedStub = state.stubs.find(s => s.id === stubId);
+                if (clickedStub) {
+                    project.update(p => ({
+                        ...p,
+                        currentRunId: clickedStub.runId,
+                        currentRunType: clickedStub.runType
+                    }));
+                }
             }
         }
     }
@@ -312,7 +320,7 @@
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const nodes = tr.nodes();
             if (nodes.length > 0) {
-                const id = nodes[0].id(); // Matches our stub-group ID!
+                const id = nodes[0].id();
                 tr.nodes([]);
                 project.update(p => ({
                     ...p,

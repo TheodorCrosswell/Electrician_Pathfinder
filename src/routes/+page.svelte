@@ -9,6 +9,24 @@
         project.update(p => ({ ...p, currentRunId: 'A', currentRunType: 'DAISY_CHAIN' }));
     }
 
+    // Determine distinct runs dynamically 
+    $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType);
+
+    function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined) {
+        // Use a standard Record object instead of Map to satisfy svelte/prefer-svelte-reactivity
+        const runsMap: Record<string, RunType> = {};
+        stubs.forEach(s => { runsMap[s.runId] = s.runType; });
+        
+        // Include the current run ID in the list, even if it has no stubs yet
+        if (currentId && !(currentId in runsMap)) {
+            runsMap[currentId] = currentType || 'DAISY_CHAIN';
+        }
+        
+        return Object.entries(runsMap)
+            .map(([id, type]) => ({ id, type }))
+            .sort((a, b) => a.id.localeCompare(b.id));
+    }
+
     function handleFileUpload(e: Event) {
         const target = e.target as HTMLInputElement;
         const file = target.files?.[0];
@@ -46,30 +64,37 @@
     function handleNewRun() {
         project.update(p => ({
             ...p,
-            currentRunId: getNextRunId(p.stubs)
+            currentRunId: getNextRunId(p.stubs),
+            currentRunType: 'DAISY_CHAIN'
         }));
     }
 
-    function setRunType(type: RunType) {
-        project.update(p => ({ ...p, currentRunType: type }));
+    function deleteRun(runId: string) {
+        project.update(p => {
+            const remainingStubs = p.stubs.filter(s => s.runId !== runId);
+            const nextRunsList = getRunsList(remainingStubs, undefined, undefined).filter(r => r.id !== runId);
+            
+            const nextCurrentId = nextRunsList.length > 0 ? nextRunsList[0].id : 'A';
+            const nextCurrentType = nextRunsList.length > 0 ? nextRunsList[0].type : 'DAISY_CHAIN';
+
+            return {
+                ...p,
+                stubs: remainingStubs,
+                currentRunId: nextCurrentId,
+                currentRunType: nextCurrentType
+            };
+        });
     }
 
-    function reverseCurrentRun() {
-        project.update(p => {
-            const runId = p.currentRunId || 'A';
-            const runStubs = p.stubs.filter(s => s.runId === runId && !s.isBox);
-            const currentIndices = runStubs.map(s => s.index);
-            const reversedIndices = [...currentIndices].reverse();
-            
-            const updatedStubs = p.stubs.map(s => {
-                if (s.runId === runId && !s.isBox) {
-                    const idx = runStubs.findIndex(rs => rs.id === s.id);
-                    return { ...s, index: reversedIndices[idx] };
-                }
-                return s;
-            });
+    function selectRun(runId: string, runType: RunType) {
+        project.update(p => ({ ...p, currentRunId: runId, currentRunType: runType }));
+    }
 
-            return { ...p, stubs: updatedStubs };
+    function setRunType(type: RunType) {
+        project.update(p => {
+            const currentId = p.currentRunId || 'A';
+            const updatedStubs = p.stubs.map(s => s.runId === currentId ? { ...s, runType: type } : s);
+            return { ...p, currentRunType: type, stubs: updatedStubs };
         });
     }
 </script>
@@ -98,38 +123,51 @@
         </div>
     </header>
 
-    <div class="instructions">
+    <div class="instructions { $project.stage === 'STUBS' ? 'stubs-active' : '' }">
         {#if $project.stage === 'SETUP'}
             <p>Upload an image, drag/resize it to fit, then click "Flatten & Lock".</p>
         {:else if $project.stage === 'STUBS'}
             <div class="stubs-layout">
-                <div class="stubs-info">
-                    <p><strong>Click</strong> to place conduit stubs. <strong>Drag</strong> to reposition. Select and press <strong>Delete</strong> to remove.</p>
-                    <div class="run-controls">
-                        <span class="run-badge">Run {$project.currentRunId || 'A'}</span>
-                        <button class="btn btn-sm" on:click={handleNewRun}>New Run</button>
-                        <div class="radio-group">
-                            <label>
-                                <input type="radio" name="runType" 
-                                    checked={$project.currentRunType !== 'HOME_RUN'} 
-                                    on:change={() => setRunType('DAISY_CHAIN')} /> 
-                                Daisy Chain
-                            </label>
-                            <label>
-                                <input type="radio" name="runType" 
-                                    checked={$project.currentRunType === 'HOME_RUN'} 
-                                    on:change={() => setRunType('HOME_RUN')} /> 
-                                Home Run
-                            </label>
-                        </div>
-                        {#if $project.currentRunType !== 'HOME_RUN'}
-                            <button class="btn btn-sm" on:click={reverseCurrentRun}>Reverse Order</button>
-                        {/if}
+                <p><strong>Click</strong> to place conduit stubs. <strong>Drag</strong> to reposition. Select and press <strong>Delete</strong> to remove.</p>
+                <div class="stubs-menu-container">
+                    <div class="menu-actions">
+                        <button class="btn btn-sm primary" on:click={handleNewRun}>New Run</button>
+                        <button class="btn btn-sm danger" on:click={() => deleteRun($project.currentRunId || 'A')}>Delete Run</button>
+                    </div>
+                    
+                    <div class="runs-list">
+                        <!-- Added keyed each block (run.id) to satisfy svelte/require-each-key -->
+                        {#each runsList as run (run.id)}
+                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                            <div 
+                                class="run-item" 
+                                class:active={$project.currentRunId === run.id}
+                                on:click={() => selectRun(run.id, run.type)}
+                            >
+                                <strong>Run {run.id}</strong>
+                                <span class="badge {run.type === 'HOME_RUN' ? 'badge-home' : 'badge-daisy'}">
+                                    {run.type === 'HOME_RUN' ? 'Home Run' : 'Daisy Chain'}
+                                </span>
+                            </div>
+                        {/each}
+                    </div>
+
+                    <div class="run-settings">
+                        <label>
+                            <input type="radio" name="runType" 
+                                checked={$project.currentRunType !== 'HOME_RUN'} 
+                                on:change={() => setRunType('DAISY_CHAIN')} /> 
+                            Daisy Chain
+                        </label>
+                        <label>
+                            <input type="radio" name="runType" 
+                                checked={$project.currentRunType === 'HOME_RUN'} 
+                                on:change={() => setRunType('HOME_RUN')} /> 
+                            Home Run
+                        </label>
                     </div>
                 </div>
-                <button class="btn danger" disabled={$project.stubs.length === 0} on:click={() => project.update(p => ({...p, stubs: []}))}>
-                    Clear All
-                </button>
             </div>
         {:else if $project.stage === 'OBSTRUCTIONS'}
             <p><strong>Click & Drag</strong> to draw red block-out zones. <strong>Click</strong> to resize or drag. Press <strong>Delete</strong> to remove.</p>
@@ -160,6 +198,7 @@
     .primary:hover:not(:disabled) { background: #1d4ed8; }
     .danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
     .danger:hover:not(:disabled) { background: #fecaca; }
+    .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.875rem; }
 
     .switcher { display: flex; background: #f3f4f6; border-radius: 8px; padding: 4px; gap: 4px; }
     .switcher button { border: none; background: transparent; color: #6b7280; }
@@ -167,14 +206,22 @@
 
     .instructions { display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; margin-bottom: 2rem; min-height: 48px; }
     .instructions p { margin: 0; color: #1e3a8a; }
+    .instructions.stubs-active { flex-direction: column; align-items: stretch; gap: 1rem; }
 
-    .stubs-layout { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 1rem; }
-    .stubs-info { display: flex; flex-direction: column; gap: 0.75rem; }
-    .run-controls { display: flex; align-items: center; gap: 0.75rem; background: #fff; padding: 0.5rem; border-radius: 6px; border: 1px solid #bfdbfe; font-size: 0.9rem; }
-    .run-badge { font-weight: bold; background: #e0e7ff; color: #3730a3; padding: 0.25rem 0.5rem; border-radius: 4px; }
-    .radio-group { display: flex; gap: 0.75rem; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; padding: 0 0.75rem; }
-    .radio-group label { display: flex; align-items: center; gap: 0.25rem; cursor: pointer; color: #374151; }
-    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+    .stubs-layout { display: flex; flex-direction: column; width: 100%; gap: 1rem; }
+    .stubs-menu-container { display: flex; flex-direction: column; gap: 1rem; background: #fff; padding: 1rem; border-radius: 6px; border: 1px solid #bfdbfe; width: 100%; box-sizing: border-box; }
+    .menu-actions { display: flex; gap: 0.5rem; }
+    .runs-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .run-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; border-radius: 6px; border: 1px solid #e5e7eb; background: #f9fafb; transition: all 0.2s; }
+    .run-item:hover { background: #f3f4f6; }
+    .run-item.active { background: #e0e7ff; border-color: #818cf8; color: #3730a3; box-shadow: 0 0 0 1px #818cf8; }
+    
+    .badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .badge-home { background: #dcfce7; color: #166534; }
+    .badge-daisy { background: #fef9c3; color: #854d0e; }
+    
+    .run-settings { display: flex; gap: 1rem; border-top: 1px solid #e5e7eb; padding-top: 0.75rem; font-size: 0.9rem; color: #374151; }
+    .run-settings label { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; }
 
     .canvas-container { display: flex; justify-content: center; }
 </style>

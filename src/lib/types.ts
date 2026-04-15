@@ -30,4 +30,5 @@ export interface ProjectState {
     stage: StageType;
     currentRunId?: string;
     currentRunType?: RunType;
+    gridResolution: number;
 }

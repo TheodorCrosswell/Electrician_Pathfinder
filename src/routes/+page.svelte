@@ -108,7 +108,22 @@
 
 <main class="app">
     <header class="header">
-        <h1>Conduit Planner</h1>
+        <div class="title-group">
+            <h1>Conduit Planner</h1>
+            
+            {#if $project.stage !== 'SETUP'}
+                <div class="res-menu">
+                    <label for="resolution">Grid Resolution:</label>
+                    <select id="resolution" class="select-sm" 
+                        value={$project.gridResolution || 10} 
+                        on:change={(e) => project.update(p => ({ ...p, gridResolution: Number(e.currentTarget.value) }))}>
+                        <option value={20}>Low (20px)</option>
+                        <option value={10}>Normal (10px)</option>
+                        <option value={5}>High (5px)</option>
+                </select>
+                </div>
+            {/if}
+        </div>
         
         <div class="toolbar">
             {#if $project.stage === 'SETUP'}
@@ -195,7 +210,8 @@
     </div>
 
     <section class="canvas-container">
-        <Canvas bind:this={canvasRef} {obstructionTool} />
+        <!-- Pass gridResolution down to canvas so it can be forwarded to calculatePaths() -->
+        <Canvas bind:this={canvasRef} {obstructionTool} gridResolution={$project.gridResolution || 10} />
     </section>
 </main>
 
@@ -203,6 +219,12 @@
     :global(body) { margin: 0; font-family: system-ui, -apple-system, sans-serif; background-color: #f9fafb; color: #111827; }
     .app { max-width: 900px; margin: 0 auto; padding: 2rem; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    
+    .title-group { display: flex; align-items: baseline; gap: 1.5rem; }
+    .res-menu { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #4b5563; font-weight: 500; }
+    .select-sm { padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid #d1d5db; background: #fff; font-size: 0.85rem; cursor: pointer; outline: none; }
+    .select-sm:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+
     h1 { margin: 0; font-size: 1.5rem; }
     .toolbar { display: flex; gap: 1rem; }
     

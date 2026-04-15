@@ -2,22 +2,21 @@
 import * as PF from 'pathfinding';
 import type { Stub, Obstruction } from './types';
 
-const CELL_SIZE = 10;
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 
-export function calculatePaths(stubs: Stub[], obstructions: Obstruction[]): number[][][] {
+export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellSize: number = 10): number[][][] {
     if (stubs.length < 2) return [];
 
-    const cols = Math.ceil(CANVAS_WIDTH / CELL_SIZE);
-    const rows = Math.ceil(CANVAS_HEIGHT / CELL_SIZE);
+    const cols = Math.ceil(CANVAS_WIDTH / cellSize);
+    const rows = Math.ceil(CANVAS_HEIGHT / cellSize);
     const grid = new PF.Grid(cols, rows);
 
     obstructions.forEach(obs => {
-        const startX = Math.max(0, Math.floor(obs.x / CELL_SIZE));
-        const startY = Math.max(0, Math.floor(obs.y / CELL_SIZE));
-        const endX = Math.min(cols - 1, Math.ceil((obs.x + obs.w) / CELL_SIZE));
-        const endY = Math.min(rows - 1, Math.ceil((obs.y + obs.h) / CELL_SIZE));
+        const startX = Math.max(0, Math.floor(obs.x / cellSize));
+        const startY = Math.max(0, Math.floor(obs.y / cellSize));
+        const endX = Math.min(cols - 1, Math.ceil((obs.x + obs.w) / cellSize));
+        const endY = Math.min(rows - 1, Math.ceil((obs.y + obs.h) / cellSize));
 
         for (let y = startY; y <= endY; y++) {
             for (let x = startX; x <= endX; x++) {
@@ -64,10 +63,10 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[]): numb
     }
 
     function route(start: Stub, end: Stub) {
-        const sx = Math.max(0, Math.min(cols - 1, Math.floor(start.x / CELL_SIZE)));
-        const sy = Math.max(0, Math.min(rows - 1, Math.floor(start.y / CELL_SIZE)));
-        const ex = Math.max(0, Math.min(cols - 1, Math.floor(end.x / CELL_SIZE)));
-        const ey = Math.max(0, Math.min(rows - 1, Math.floor(end.y / CELL_SIZE)));
+        const sx = Math.max(0, Math.min(cols - 1, Math.floor(start.x / cellSize)));
+        const sy = Math.max(0, Math.min(rows - 1, Math.floor(start.y / cellSize)));
+        const ex = Math.max(0, Math.min(cols - 1, Math.floor(end.x / cellSize)));
+        const ey = Math.max(0, Math.min(rows - 1, Math.floor(end.y / cellSize)));
 
         grid.setWalkableAt(sx, sy, true);
         grid.setWalkableAt(ex, ey, true);
@@ -81,8 +80,8 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[]): numb
             const smoothedPath = smoothPath(rawPath, gridBackup);
             
             const canvasPath = smoothedPath.map(p => [
-                p[0] * CELL_SIZE + (CELL_SIZE / 2),
-                p[1] * CELL_SIZE + (CELL_SIZE / 2)
+                p[0] * cellSize + (cellSize / 2),
+                p[1] * cellSize + (cellSize / 2)
             ]);
             paths.push(canvasPath);
 
@@ -219,7 +218,7 @@ function expandPath(path: number[][]): number[][] {
 function compressStraightLines(path: number[][]): number[][] {
     if (path.length < 3) return path;
     const compressed = [path[0]];
-    const p1 = path[0]; // <-- Changed from let to const
+    const p1 = path[0]; 
     let p2 = path[1];
     let dx = Math.sign(p2[0] - p1[0]);
     let dy = Math.sign(p2[1] - p1[1]);

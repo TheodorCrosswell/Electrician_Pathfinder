@@ -13,6 +13,7 @@
         points?: number[];
     };
 
+    export let gridResolution: number = 10;
     export let obstructionTool: string = 'rectangle';
 
     let container: HTMLDivElement;
@@ -182,7 +183,7 @@
         // Calculate paths interactively/dynamically during drawing stages
         pathLayer.destroyChildren();
         if (state.stage === 'STUBS' || state.stage === 'OBSTRUCTIONS') {
-            const paths = calculatePaths(state.stubs, state.obstructions);
+            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution);
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
                 const line = new Konva.Line({

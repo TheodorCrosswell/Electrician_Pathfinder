@@ -8,6 +8,13 @@
     import { calculatePaths } from '$lib/pathfinder';
     import type { ProjectState, Stub } from '$lib/types';
 
+    type ExtendedObstruction = ProjectState['obstructions'][0] & {
+        shapeType?: string;
+        points?: number[];
+    };
+
+    export let obstructionTool: string = 'rectangle';
+
     let container: HTMLDivElement;
     let stage: Konva.Stage;
     let bgLayer: Konva.Layer;
@@ -20,7 +27,7 @@
     let rawImageNode: Konva.Image | null = null;
     let isDrawing = false;
     let drawStartPos: { x: number, y: number } | null = null;
-    let previewRect: Konva.Rect | null = null;
+    let previewShape: Konva.Shape | null = null;
     
     export function flatten() {
         if (rawImageNode) {
@@ -98,16 +105,31 @@
         
         state.obstructions.forEach(obs => {
             let node = mainLayer.findOne('#' + obs.id);
+            const obsExt = obs as ExtendedObstruction; 
+            const type = obsExt.shapeType || 'rectangle';
+            const commonProps = {
+                id: obs.id, draggable: isInteractive, name: 'obstruction',
+                stroke: 'red', strokeWidth: 2, strokeScaleEnabled: false
+            };
+
             if (!node) {
-                node = new Konva.Rect({
-                    id: obs.id, x: obs.x, y: obs.y, width: obs.w, height: obs.h,
-                    fill: 'rgba(239, 68, 68, 0.5)', stroke: 'red', strokeWidth: 2,
-                    draggable: true, name: 'obstruction'
-                });
+                if (type === 'circle' || type === 'oval') {
+                    node = new Konva.Ellipse({ ...commonProps, fill: 'rgba(239, 68, 68, 0.5)', x: obs.x + obs.w/2, y: obs.y + obs.h/2, radiusX: obs.w/2, radiusY: obs.h/2 });
+                } else if (type === 'line' || type === 'vh_line' || type === 'freehand') {
+                    node = new Konva.Line({ ...commonProps, x: obs.x, y: obs.y, points: obsExt.points || [], strokeWidth: 4 });
+                } else {
+                    node = new Konva.Rect({ ...commonProps, fill: 'rgba(239, 68, 68, 0.5)', x: obs.x, y: obs.y, width: obs.w, height: obs.h });
+                }
                 node.on('dragend transformend', () => updateObstruction(obs.id, node as Konva.Node));
                 mainLayer.add(node as Konva.Shape);
             } else {
-                node.setAttrs({ x: obs.x, y: obs.y, width: obs.w, height: obs.h, draggable: isInteractive });
+                if (type === 'circle' || type === 'oval') {
+                    node.setAttrs({ x: obs.x + obs.w/2, y: obs.y + obs.h/2, radiusX: obs.w/2, radiusY: obs.h/2, draggable: isInteractive });
+                } else if (type === 'line' || type === 'vh_line' || type === 'freehand') {
+                    node.setAttrs({ x: obs.x, y: obs.y, points: obsExt.points || [], draggable: isInteractive });
+                } else {
+                    node.setAttrs({ x: obs.x, y: obs.y, width: obs.w, height: obs.h, draggable: isInteractive });
+                }
             }
         });
 
@@ -227,9 +249,8 @@
                 tr.enabledAnchors(['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left']);
             } else if (nodeToTransform.name() === 'stub-group') {
                 tr.nodes([nodeToTransform]);
-                tr.enabledAnchors([]); // No resize anchors on stubs
+                tr.enabledAnchors([]);
                 
-                // Select the run of the clicked stub
                 const stubId = nodeToTransform.id();
                 const clickedStub = state.stubs.find(s => s.id === stubId);
                 if (clickedStub) {
@@ -253,55 +274,139 @@
 
         isDrawing = true;
         drawStartPos = pos;
-        previewRect = new Konva.Rect({
-            x: drawStartPos.x, y: drawStartPos.y, width: 0, height: 0,
-            fill: 'rgba(239, 68, 68, 0.3)', stroke: 'red', strokeWidth: 1, dash: [5, 5]
-        });
-        uiLayer.add(previewRect);
+
+        const commonStyle = { stroke: 'red', strokeWidth: 2, fill: 'rgba(239, 68, 68, 0.3)', dash: [5, 5] };
+
+        if (obstructionTool === 'rectangle') {
+            previewShape = new Konva.Rect({ x: pos.x, y: pos.y, width: 0, height: 0, ...commonStyle });
+        } else if (obstructionTool === 'circle' || obstructionTool === 'oval') {
+            previewShape = new Konva.Ellipse({ x: pos.x, y: pos.y, radiusX: 0, radiusY: 0, ...commonStyle });
+        } else {
+            previewShape = new Konva.Line({ x: 0, y: 0, points: [pos.x, pos.y, pos.x, pos.y], stroke: 'red', strokeWidth: 4, dash: [5, 5] });
+        }
+        
+        uiLayer.add(previewShape);
     }
 
     function handleMouseMove() {
-        if (!isDrawing || !previewRect || !drawStartPos) return;
+        if (!isDrawing || !previewShape || !drawStartPos) return;
         const pos = stage.getPointerPosition();
         if (!pos) return;
 
-        previewRect.width(pos.x - drawStartPos.x);
-        previewRect.height(pos.y - drawStartPos.y);
+        const dx = pos.x - drawStartPos.x;
+        const dy = pos.y - drawStartPos.y;
+
+        switch (obstructionTool) {
+            case 'rectangle':
+                previewShape.setAttrs({ width: dx, height: dy });
+                break;
+            case 'circle': {
+                const r = Math.sqrt(dx * dx + dy * dy);
+                previewShape.setAttrs({ radiusX: r, radiusY: r });
+                break;
+            }
+            case 'oval':
+                previewShape.setAttrs({ radiusX: Math.abs(dx), radiusY: Math.abs(dy) });
+                break;
+            case 'line':
+                previewShape.setAttrs({ points: [drawStartPos.x, drawStartPos.y, pos.x, pos.y] });
+                break;
+            case 'vh_line':
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    previewShape.setAttrs({ points: [drawStartPos.x, drawStartPos.y, pos.x, drawStartPos.y] });
+                } else {
+                    previewShape.setAttrs({ points: [drawStartPos.x, drawStartPos.y, drawStartPos.x, pos.y] });
+                }
+                break;
+            case 'freehand': {
+                const pts = previewShape.getAttr('points') as number[];
+                previewShape.setAttrs({ points: [...pts, pos.x, pos.y] });
+                break;
+            }
+        }
+
         uiLayer.batchDraw();
     }
 
     function handleMouseUp() {
-        if (!isDrawing || !previewRect) return;
+        if (!isDrawing || !previewShape) return;
         isDrawing = false;
         
-        let x = previewRect.x();
-        let y = previewRect.y();
-        let w = previewRect.width();
-        let h = previewRect.height();
-        
-        if (w < 0) { x += w; w = Math.abs(w); }
-        if (h < 0) { y += h; h = Math.abs(h); }
+        let x = 0, y = 0, w = 0, h = 0;
+        let finalPoints: number[] = [];
 
-        previewRect.destroy();
-        previewRect = null;
+        if (obstructionTool === 'rectangle') {
+            x = previewShape.x();
+            y = previewShape.y();
+            w = previewShape.width();
+            h = previewShape.height();
+            if (w < 0) { x += w; w = Math.abs(w); }
+            if (h < 0) { y += h; h = Math.abs(h); }
+        } else if (obstructionTool === 'circle' || obstructionTool === 'oval') {
+            const rx = previewShape.getAttr('radiusX') || 0;
+            const ry = previewShape.getAttr('radiusY') || 0;
+            x = previewShape.x() - rx;
+            y = previewShape.y() - ry;
+            w = rx * 2;
+            h = ry * 2;
+        } else {
+            const pts = previewShape.getAttr('points') as number[];
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for(let i = 0; i < pts.length; i += 2) {
+                if (pts[i] < minX) minX = pts[i];
+                if (pts[i] > maxX) maxX = pts[i];
+                if (pts[i+1] < minY) minY = pts[i+1];
+                if (pts[i+1] > maxY) maxY = pts[i+1];
+            }
+            x = minX; y = minY;
+            w = maxX - minX; h = maxY - minY;
+            
+            // Normalize points relative to top-left coordinate (x,y)
+            finalPoints = pts.map((val, i) => i % 2 === 0 ? val - x : val - y);
+        }
+
+        previewShape.destroy();
+        previewShape = null;
         uiLayer.batchDraw();
 
-        if (w > 5 && h > 5) {
-            project.update(p => ({
-                ...p,
-                obstructions: [...p.obstructions, { id: uuidv4(), x, y, w, h }]
-            }));
-        }
+        // Ensure single stray accidental clicks are ignored completely
+        if (w < 5 && h < 5) return; 
+
+        // Apply a minimum bounding box threshold so flat lines have area in pathfinding matrix
+        if (w < 5) w = 5;
+        if (h < 5) h = 5;
+
+        project.update(p => ({
+            ...p,
+            obstructions: [...p.obstructions, { id: uuidv4(), x, y, w, h, shapeType: obstructionTool, points: finalPoints } as unknown as ProjectState['obstructions'][0]]
+        }));
     }
 
     function updateObstruction(id: string, node: Konva.Node) {
         project.update(p => {
-            const obs = p.obstructions.find(o => o.id === id);
+            const obs = p.obstructions.find(o => o.id === id) as ExtendedObstruction | undefined;
             if (obs) {
-                obs.x = node.x();
-                obs.y = node.y();
-                obs.w = node.width() * node.scaleX();
-                obs.h = node.height() * node.scaleY();
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+                const type = obs.shapeType || 'rectangle';
+
+                if (type === 'circle' || type === 'oval') {
+                    obs.w = obs.w * scaleX;
+                    obs.h = obs.h * scaleY;
+                    obs.x = node.x() - obs.w / 2;
+                    obs.y = node.y() - obs.h / 2;
+                } else if (type === 'line' || type === 'vh_line' || type === 'freehand') {
+                    obs.x = node.x();
+                    obs.y = node.y();
+                    obs.w = obs.w * scaleX;
+                    obs.h = obs.h * scaleY;
+                    obs.points = (obs.points || []).map((val: number, i: number) => i % 2 === 0 ? val * scaleX : val * scaleY);
+                } else {
+                    obs.x = node.x();
+                    obs.y = node.y();
+                    obs.w = node.width() * scaleX;
+                    obs.h = node.height() * scaleY;
+                }
             }
             return p;
         });

@@ -4,6 +4,7 @@
     import type { StageType, RunType, Stub } from '$lib/types';
 
     let canvasRef: Canvas;
+    let obstructionTool = 'rectangle';
 
     $: if ($project.currentRunId === undefined) {
         project.update(p => ({ ...p, currentRunId: 'A', currentRunType: 'DAISY_CHAIN' }));
@@ -13,11 +14,9 @@
     $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType);
 
     function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined) {
-        // Use a standard Record object instead of Map to satisfy svelte/prefer-svelte-reactivity
         const runsMap: Record<string, RunType> = {};
         stubs.forEach(s => { runsMap[s.runId] = s.runType; });
         
-        // Include the current run ID in the list, even if it has no stubs yet
         if (currentId && !(currentId in runsMap)) {
             runsMap[currentId] = currentType || 'DAISY_CHAIN';
         }
@@ -95,7 +94,6 @@
             const currentId = p.currentRunId || 'A';
             let currentStubs = p.stubs;
 
-            // If switching to Daisy Chain, completely remove the home run box (if it exists)
             if (type === 'DAISY_CHAIN') {
                 currentStubs = currentStubs.filter(s => !(s.runId === currentId && s.isBox));
             }
@@ -145,7 +143,6 @@
                     </div>
                     
                     <div class="runs-list">
-                        <!-- Added keyed each block (run.id) to satisfy svelte/require-each-key -->
                         {#each runsList as run (run.id)}
                             <!-- svelte-ignore a11y_click_events_have_key_events -->
                             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -179,17 +176,29 @@
                 </div>
             </div>
         {:else if $project.stage === 'OBSTRUCTIONS'}
-            <p><strong>Click & Drag</strong> to draw red block-out zones. <strong>Click</strong> to resize or drag. Press <strong>Delete</strong> to remove.</p>
-            <button class="btn danger" disabled={$project.obstructions.length === 0} on:click={() => project.update(p => ({...p, obstructions: []}))}>
-                Clear All
-            </button>
+            <div class="obstructions-layout">
+                <p><strong>Draw Block-Out Zones</strong>. Select your tool below to draw. <strong>Click placed obstacles</strong> to drag/resize, or press <strong>Delete</strong> to remove.</p>
+                
+                <div class="obstruction-tools">
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="rectangle" /> Rectangle</label>
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="vh_line" /> Straight H/V Line</label>
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="line" /> Straight Line</label>
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="freehand" /> Freehand</label>
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="circle" /> Circle</label>
+                    <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="oval" /> Oval</label>
+                </div>
+
+                <button class="btn danger" disabled={$project.obstructions.length === 0} on:click={() => project.update(p => ({...p, obstructions: []}))}>
+                    Clear All Obstructions
+                </button>
+            </div>
         {:else if $project.stage === 'RESULTS'}
             <p>Paths calculated dynamically! Try clicking back to <em>Obstructions</em>, move a block-out, and return to see it reroute.</p>
         {/if}
     </div>
 
     <section class="canvas-container">
-        <Canvas bind:this={canvasRef} />
+        <Canvas bind:this={canvasRef} {obstructionTool} />
     </section>
 </main>
 
@@ -231,6 +240,13 @@
     
     .run-settings { display: flex; gap: 1rem; border-top: 1px solid #e5e7eb; padding-top: 0.75rem; font-size: 0.9rem; color: #374151; }
     .run-settings label { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+
+    /* Custom Layout specifically for Obstruction Stage Tools */
+    .obstructions-layout { display: flex; flex-direction: column; gap: 1rem; width: 100%; }
+    .obstructions-layout .btn.danger { align-self: flex-start; }
+    .obstruction-tools { display: flex; flex-wrap: wrap; gap: 1rem; background: #fff; padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid #bfdbfe; }
+    .tool-label { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; font-size: 0.9rem; color: #374151; font-weight: 500; }
+    .tool-label input[type="radio"] { accent-color: #3b82f6; width: 1.1rem; height: 1.1rem; }
 
     .canvas-container { display: flex; justify-content: center; }
 </style>

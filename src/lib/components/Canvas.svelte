@@ -93,7 +93,7 @@
             };
         }
 
-        const isInteractive = state.stage !== 'RESULTS';
+        const isInteractive = state.stage === 'STUBS' || state.stage === 'OBSTRUCTIONS';
 
         const existingObs = mainLayer.find('.obstruction');
         existingObs.forEach(node => {
@@ -150,7 +150,7 @@
             if (!group) {
                 group = new Konva.Group({
                     id: stub.id, x: stub.x, y: stub.y,
-                    draggable: true, name: 'stub-group'
+                    draggable: isInteractive, name: 'stub-group'
                 });
 
                 if (stub.isBox) {
@@ -179,8 +179,9 @@
 
         if (!isInteractive) tr.nodes([]);
 
+        // Calculate paths interactively/dynamically during drawing stages
         pathLayer.destroyChildren();
-        if (state.stage === 'RESULTS') {
+        if (state.stage === 'STUBS' || state.stage === 'OBSTRUCTIONS') {
             const paths = calculatePaths(state.stubs, state.obstructions);
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
@@ -196,7 +197,6 @@
 
     function handleStageClick(e: KonvaEventObject<MouseEvent>) {
         const state = get(project);
-        if (state.stage === 'RESULTS') return;
 
         let target = e.target;
         let isBg = target === stage || target.name() === 'bg' || target.name() === 'flattened';

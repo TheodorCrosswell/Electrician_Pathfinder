@@ -124,7 +124,6 @@
                 <div class="switcher">
                     <button class:active={$project.stage === 'STUBS'} on:click={() => setStage('STUBS')}>1. Mark Stubs</button>
                     <button class:active={$project.stage === 'OBSTRUCTIONS'} on:click={() => setStage('OBSTRUCTIONS')}>2. Mark Obstructions</button>
-                    <button class:active={$project.stage === 'RESULTS'} on:click={() => setStage('RESULTS')}>3. Run Pathfinder</button>
                 </div>
             {/if}
         </div>
@@ -135,7 +134,7 @@
             <p>Upload an image, drag/resize it to fit, then click "Flatten & Lock".</p>
         {:else if $project.stage === 'STUBS'}
             <div class="stubs-layout">
-                <p><strong>Click</strong> to place conduit stubs. <strong>Drag</strong> to reposition. Select and press <strong>Delete</strong> to remove.</p>
+                <p><strong>Click</strong> to place conduit stubs. <strong>Drag</strong> to reposition. Select and press <strong>Delete</strong> to remove. Paths will reroute dynamically.</p>
                 <div class="stubs-menu-container">
                     <div class="menu-actions">
                         <button class="btn btn-sm primary" on:click={handleNewRun}>New Run</button>
@@ -177,7 +176,7 @@
             </div>
         {:else if $project.stage === 'OBSTRUCTIONS'}
             <div class="obstructions-layout">
-                <p><strong>Draw Block-Out Zones</strong>. Select your tool below to draw. <strong>Click placed obstacles</strong> to drag/resize, or press <strong>Delete</strong> to remove.</p>
+                <p><strong>Draw Block-Out Zones</strong>. Select your tool below to draw. <strong>Click placed obstacles</strong> to drag/resize, or press <strong>Delete</strong> to remove. Paths will reroute dynamically.</p>
                 
                 <div class="obstruction-tools">
                     <label class="tool-label"><input type="radio" bind:group={obstructionTool} value="rectangle" /> Rectangle</label>
@@ -192,8 +191,6 @@
                     Clear All Obstructions
                 </button>
             </div>
-        {:else if $project.stage === 'RESULTS'}
-            <p>Paths calculated dynamically! Try clicking back to <em>Obstructions</em>, move a block-out, and return to see it reroute.</p>
         {/if}
     </div>
 

@@ -93,7 +93,16 @@
     function setRunType(type: RunType) {
         project.update(p => {
             const currentId = p.currentRunId || 'A';
-            const updatedStubs = p.stubs.map(s => s.runId === currentId ? { ...s, runType: type } : s);
+            let currentStubs = p.stubs;
+
+            // If switching to Daisy Chain, completely remove the home run box (if it exists)
+            if (type === 'DAISY_CHAIN') {
+                currentStubs = currentStubs.filter(s => !(s.runId === currentId && s.isBox));
+            }
+
+            const updatedStubs = currentStubs.map(s => 
+                s.runId === currentId ? { ...s, runType: type } : s
+            );
             return { ...p, currentRunType: type, stubs: updatedStubs };
         });
     }

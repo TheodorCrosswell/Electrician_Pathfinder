@@ -7,5 +7,6 @@ export const project = writable<ProjectState>({
     image: null,
     stubs: [],
     obstructions: [],
-    stage: 'SETUP'
+    stage: 'SETUP',
+    gridResolution: 10
 });

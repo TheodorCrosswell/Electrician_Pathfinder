@@ -9,7 +9,7 @@ export function calculatePaths(
     stubs: Stub[], 
     obstructions: Obstruction[], 
     cellSize: number = 10,
-    maxOverlap: number = 3 // NEW: Limit how many paths can share the same grid tile
+    maxOverlap: number = 3 // Limit how many paths can share the same grid tile
 ): number[][][] {
     if (stubs.length < 2) return [];
 
@@ -102,9 +102,11 @@ export function calculatePaths(
                 const px = p[0];
                 const py = p[1];
                 
-                // Do not add capacity counts to the exact start/end nodes, so components 
-                // themselves don't become bottlenecks.
-                if ((px === sx && py === sy) || (px === ex && py === ey)) {
+                // Do not add capacity counts to the start/end nodes or their immediate surrounding tiles.
+                // This prevents the tiles directly next to a component from bottlenecking
+                // multiple connections (e.g., allowing unlimited paths to converge into the box).
+                if ((Math.abs(px - sx) <= 1 && Math.abs(py - sy) <= 1) || 
+                    (Math.abs(px - ex) <= 1 && Math.abs(py - ey) <= 1)) {
                     return;
                 }
                 

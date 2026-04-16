@@ -12,19 +12,32 @@
 
     // Determine distinct runs dynamically 
     $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType);
-
+    
     function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined) {
-        const runsMap: Record<string, RunType> = {};
-        stubs.forEach(s => { runsMap[s.runId] = s.runType; });
-        
-        if (currentId && !(currentId in runsMap)) {
-            runsMap[currentId] = currentType || 'DAISY_CHAIN';
+            const runsMap: Record<string, { type: RunType; count: number }> = {};
+            
+            stubs.forEach(s => { 
+                if (!runsMap[s.runId]) {
+                    runsMap[s.runId] = { type: s.runType, count: 0 };
+                }
+                runsMap[s.runId].count++;
+            });
+            
+            if (currentId && !(currentId in runsMap)) {
+                runsMap[currentId] = { type: currentType || 'DAISY_CHAIN', count: 0 };
+            }
+            
+            return Object.entries(runsMap)
+                .map(([id, data]) => {
+                    // If Home Run, subtract 1 to exclude the 'box' from the label count
+                    let displayCount = data.count;
+                    if (data.type === 'HOME_RUN' && displayCount > 0) {
+                        displayCount -= 1;
+                    }
+                    return { id, type: data.type, count: displayCount };
+                })
+                .sort((a, b) => a.id.localeCompare(b.id));
         }
-        
-        return Object.entries(runsMap)
-            .map(([id, type]) => ({ id, type }))
-            .sort((a, b) => a.id.localeCompare(b.id));
-    }
 
     function handleFileUpload(e: Event) {
         const target = e.target as HTMLInputElement;
@@ -138,7 +151,9 @@
                         }
                     }}>
                         {#each runsList as run (run.id)}
-                            <option value={run.id}>Run {run.id}</option>
+                            <option value={run.id}>
+                                Run {run.id} ({run.count} {run.count === 1 ? 'stub' : 'stubs'}, {run.type === 'HOME_RUN' ? 'Home Run' : 'Daisy Chain'})
+                            </option>
                         {/each}
                     </select>
 

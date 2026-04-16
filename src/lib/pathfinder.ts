@@ -5,12 +5,20 @@ import type { Stub, Obstruction } from './types';
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 
-export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellSize: number = 10): number[][][] {
+export function calculatePaths(
+    stubs: Stub[], 
+    obstructions: Obstruction[], 
+    cellSize: number = 10,
+    maxOverlap: number = 3 // NEW: Limit how many paths can share the same grid tile
+): number[][][] {
     if (stubs.length < 2) return [];
 
     const cols = Math.ceil(CANVAS_WIDTH / cellSize);
     const rows = Math.ceil(CANVAS_HEIGHT / cellSize);
     const grid = new PF.Grid(cols, rows);
+    
+    // Track how many paths pass through each individual cell
+    const usageGrid: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
 
     obstructions.forEach(obs => {
         const startX = Math.max(0, Math.floor(obs.x / cellSize));
@@ -55,6 +63,7 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellS
         } else if (runType === 'HOME_RUN') {
             const box = runStubs.find(s => s.isBox);
             if (!box) continue; // Run requires a Box component
+            
             for (const stub of runStubs) {
                 if (stub === box) continue;
                 route(stub, box);
@@ -68,6 +77,7 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellS
         const ex = Math.max(0, Math.min(cols - 1, Math.floor(end.x / cellSize)));
         const ey = Math.max(0, Math.min(rows - 1, Math.floor(end.y / cellSize)));
 
+        // Ensure start and end points are always accessible initially
         grid.setWalkableAt(sx, sy, true);
         grid.setWalkableAt(ex, ey, true);
 
@@ -85,16 +95,23 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellS
             ]);
             paths.push(canvasPath);
 
-            // Re-expand the smoothed corners back into step-by-step points so we can block them
+            // Re-expand the smoothed corners back into step-by-step points so we can apply them to our usage grid
             const fullPath = expandPath(smoothedPath);
 
-            // Block out all uncompressed path segments except the exact start/end nodes
-            // to support home-runs where multiple endpoints must converge.
             fullPath.forEach(p => {
-                if ((p[0] === sx && p[1] === sy) || (p[0] === ex && p[1] === ey)) {
-                    // Do nothing (Keep walkable)
-                } else {
-                    grid.setWalkableAt(p[0], p[1], false);
+                const px = p[0];
+                const py = p[1];
+                
+                // Do not add capacity counts to the exact start/end nodes, so components 
+                // themselves don't become bottlenecks.
+                if ((px === sx && py === sy) || (px === ex && py === ey)) {
+                    return;
+                }
+                
+                // Increment tile usage. If it hits the limit, mark it unwalkable for future paths.
+                usageGrid[py][px]++;
+                if (usageGrid[py][px] >= maxOverlap) {
+                    grid.setWalkableAt(px, py, false);
                 }
             });
         }
@@ -102,7 +119,6 @@ export function calculatePaths(stubs: Stub[], obstructions: Obstruction[], cellS
 
     return paths;
 }
-
 
 // --- Helper Functions ---
 

@@ -175,11 +175,20 @@
             
             <div class="spacer"></div>
 
+            <!-- Resolution & Overlap Control -->
             <div class="toolbar-section">
-                <select class="select-sm" value={$project.gridResolution || 10} on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}>
+                <select class="select-sm" title="Grid Resolution" value={$project.gridResolution || 10} on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}>
                     <option value={20}>Low Res Grid</option>
                     <option value={10}>Normal Res</option>
                     <option value={5}>High Res Grid</option>
+                </select>
+
+                <select class="select-sm" title="Maximum overlapping path lines allowed" value={$project.maxOverlap || 3} on:change={(e) => project.update(p => ({ ...p, maxOverlap: Number((e.currentTarget).value) }))}>
+                    <option value={1}>Max Overlap: 1</option>
+                    <option value={2}>Max Overlap: 2</option>
+                    <option value={3}>Max Overlap: 3</option>
+                    <option value={4}>Max Overlap: 4</option>
+                    <option value={5}>Max Overlap: 5</option>
                 </select>
             </div>
         {/if}
@@ -187,7 +196,13 @@
 
     <!-- Main Canvas Area -->
     <main class="canvas-area">
-        <Canvas bind:this={canvasRef} {activeTool} gridResolution={$project.gridResolution || 10} />
+        <!-- Pass the globally set maxOverlap directly into the canvas config -->
+        <Canvas 
+            bind:this={canvasRef} 
+            {activeTool} 
+            gridResolution={$project.gridResolution || 10} 
+            maxOverlap={$project.maxOverlap || 3} 
+        />
     </main>
 </div>
 

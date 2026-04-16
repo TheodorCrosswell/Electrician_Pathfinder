@@ -31,4 +31,5 @@ export interface ProjectState {
     currentRunId?: string;
     currentRunType?: RunType;
     gridResolution: number;
+    maxOverlap?: number; // <-- NEW: Added to fix Project store errors
 }

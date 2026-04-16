@@ -16,6 +16,8 @@
     export let gridResolution: number = 10;
     // Unified tool state: 'stub', 'rectangle', 'line', 'vh_line', 'freehand', 'circle', 'oval'
     export let activeTool: string = 'stub';
+    export let maxOverlap: number = 3; // <-- NEW: Tell Canvas to accept this prop
+    
 
     let container: HTMLDivElement;
     let stage: Konva.Stage;
@@ -185,7 +187,7 @@
         // Calculate paths interactively dynamically
         pathLayer.destroyChildren();
         if (state.stage !== 'SETUP') {
-            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution);
+            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, maxOverlap);
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
                 const line = new Konva.Line({

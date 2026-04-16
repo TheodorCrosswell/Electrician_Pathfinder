@@ -14,7 +14,8 @@
     };
 
     export let gridResolution: number = 10;
-    export let obstructionTool: string = 'rectangle';
+    // Unified tool state: 'stub', 'rectangle', 'line', 'vh_line', 'freehand', 'circle', 'oval'
+    export let activeTool: string = 'stub';
 
     let container: HTMLDivElement;
     let stage: Konva.Stage;
@@ -37,6 +38,7 @@
             const dataUrl = mainLayer.toDataURL({ pixelRatio: 1 });
             rawImageNode.destroy();
             rawImageNode = null;
+            // Transitioning stage out of setup turns on interactive mode
             project.update(p => ({ ...p, image: dataUrl, rawImage: null, stage: 'STUBS' }));
         }
     }
@@ -94,7 +96,7 @@
             };
         }
 
-        const isInteractive = state.stage === 'STUBS' || state.stage === 'OBSTRUCTIONS';
+        const isInteractive = state.stage !== 'SETUP';
 
         const existingObs = mainLayer.find('.obstruction');
         existingObs.forEach(node => {
@@ -180,9 +182,9 @@
 
         if (!isInteractive) tr.nodes([]);
 
-        // Calculate paths interactively/dynamically during drawing stages
+        // Calculate paths interactively dynamically
         pathLayer.destroyChildren();
-        if (state.stage === 'STUBS' || state.stage === 'OBSTRUCTIONS') {
+        if (state.stage !== 'SETUP') {
             const paths = calculatePaths(state.stubs, state.obstructions, gridResolution);
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
@@ -205,7 +207,7 @@
         if (isBg) {
             tr.nodes([]); 
             
-            if (state.stage === 'STUBS') {
+            if (activeTool === 'stub' && state.stage !== 'SETUP') {
                 const pos = stage.getPointerPosition();
                 if (!pos) return;
                 
@@ -238,7 +240,7 @@
                 });
             }
         } else {
-            if (target.name() !== 'rawImage' && state.stage !== 'OBSTRUCTIONS' && state.stage !== 'STUBS') return;
+            if (state.stage === 'SETUP' && target.name() !== 'rawImage') return;
             
             let nodeToTransform: Konva.Node = target;
             if (nodeToTransform.parent && nodeToTransform.parent.name() === 'stub-group') {
@@ -267,7 +269,8 @@
     
     function handleMouseDown(e: KonvaEventObject<MouseEvent>) {
         const state = get(project);
-        if (state.stage !== 'OBSTRUCTIONS') return;
+        if (state.stage === 'SETUP') return;
+        if (activeTool === 'stub') return;
         if (e.target !== stage && e.target.name() !== 'bg' && e.target.name() !== 'flattened') return;
 
         const pos = stage.getPointerPosition();
@@ -278,9 +281,9 @@
 
         const commonStyle = { stroke: 'red', strokeWidth: 2, fill: 'rgba(239, 68, 68, 0.3)', dash: [5, 5] };
 
-        if (obstructionTool === 'rectangle') {
+        if (activeTool === 'rectangle') {
             previewShape = new Konva.Rect({ x: pos.x, y: pos.y, width: 0, height: 0, ...commonStyle });
-        } else if (obstructionTool === 'circle' || obstructionTool === 'oval') {
+        } else if (activeTool === 'circle' || activeTool === 'oval') {
             previewShape = new Konva.Ellipse({ x: pos.x, y: pos.y, radiusX: 0, radiusY: 0, ...commonStyle });
         } else {
             previewShape = new Konva.Line({ x: 0, y: 0, points: [pos.x, pos.y, pos.x, pos.y], stroke: 'red', strokeWidth: 4, dash: [5, 5] });
@@ -297,7 +300,7 @@
         const dx = pos.x - drawStartPos.x;
         const dy = pos.y - drawStartPos.y;
 
-        switch (obstructionTool) {
+        switch (activeTool) {
             case 'rectangle':
                 previewShape.setAttrs({ width: dx, height: dy });
                 break;
@@ -336,14 +339,14 @@
         let x = 0, y = 0, w = 0, h = 0;
         let finalPoints: number[] = [];
 
-        if (obstructionTool === 'rectangle') {
+        if (activeTool === 'rectangle') {
             x = previewShape.x();
             y = previewShape.y();
             w = previewShape.width();
             h = previewShape.height();
             if (w < 0) { x += w; w = Math.abs(w); }
             if (h < 0) { y += h; h = Math.abs(h); }
-        } else if (obstructionTool === 'circle' || obstructionTool === 'oval') {
+        } else if (activeTool === 'circle' || activeTool === 'oval') {
             const rx = previewShape.getAttr('radiusX') || 0;
             const ry = previewShape.getAttr('radiusY') || 0;
             x = previewShape.x() - rx;
@@ -379,7 +382,7 @@
 
         project.update(p => ({
             ...p,
-            obstructions: [...p.obstructions, { id: uuidv4(), x, y, w, h, shapeType: obstructionTool, points: finalPoints } as unknown as ProjectState['obstructions'][0]]
+            obstructions: [...p.obstructions, { id: uuidv4(), x, y, w, h, shapeType: activeTool, points: finalPoints } as unknown as ProjectState['obstructions'][0]]
         }));
     }
 
@@ -441,5 +444,5 @@
 <div class="canvas-wrapper" bind:this={container}></div>
 
 <style>
-    .canvas-wrapper { width: 800px; height: 600px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
+    .canvas-wrapper { width: 800px; height: 600px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; margin: auto; }
 </style>

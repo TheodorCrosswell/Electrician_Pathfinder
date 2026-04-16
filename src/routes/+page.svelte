@@ -113,6 +113,19 @@
             return { ...p, currentRunType: type, stubs: updatedStubs };
         });
     }
+
+    
+    // Define the options for the dropdowns
+    const resolutions = [
+        { label: "Very Low (20)", value: 20 },
+        { label: "Low (10)", value: 10 },
+        { label: "High (5)", value: 5 },
+        { label: "Ultra (2)", value: 2 }
+    ];
+
+    // Create an array [1, 2, ..., 20]
+    const maxOverlapOptions = Array.from({ length: 20 }, (_, i) => i + 1);
+
 </script>
 
 <div class="app-layout">
@@ -190,22 +203,34 @@
             
             <div class="spacer"></div>
 
+
             <!-- Resolution & Overlap Control -->
             <div class="toolbar-section">
-                <select class="select-sm" title="Grid Resolution" value={$project.gridResolution || 10} on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}>
-                    <option value={20}>Low Res Grid</option>
-                    <option value={10}>Normal Res</option>
-                    <option value={5}>High Res Grid</option>
+                
+                <!-- Resolution Dropdown -->
+                <select 
+                    class="select-sm" 
+                    title="Grid Resolution" 
+                    value={$project.gridResolution || 10} 
+                    on:change={(e) => project.update(p => ({ ...p, gridResolution: Number(e.currentTarget.value) }))}
+                >
+                    {#each resolutions as res (res.value)}
+                        <option value={res.value}>{res.label}</option>
+                    {/each}
                 </select>
 
-                <select class="select-sm" title="Maximum overlapping path lines allowed" value={$project.maxOverlap || 3} on:change={(e) => project.update(p => ({ ...p, maxOverlap: Number((e.currentTarget).value) }))}>
-                    <option value={1}>Max Overlap: 1</option>
-                    <option value={2}>Max Overlap: 2</option>
-                    <option value={3}>Max Overlap: 3</option>
-                    <option value={4}>Max Overlap: 4</option>
-                    <option value={5}>Max Overlap: 5</option>
+                <!-- Max Overlap Dropdown -->
+                <select 
+                    class="select-sm" 
+                    title="Maximum overlapping path lines allowed" 
+                    value={$project.maxOverlap || 3} 
+                    on:change={(e) => project.update(p => ({ ...p, maxOverlap: Number(e.currentTarget.value) }))}
+                >
+                    {#each maxOverlapOptions as num (num)}
+                        <option value={num}>Max Overlap: {num}</option>
+                    {/each}
                 </select>
-            </div>
+</div>
         {/if}
     </header>
 

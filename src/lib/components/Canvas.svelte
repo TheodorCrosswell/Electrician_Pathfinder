@@ -32,6 +32,18 @@
     let isDrawing = false;
     let drawStartPos: { x: number, y: number } | null = null;
     let previewShape: Konva.Shape | null = null;
+
+    // Loopable color palette
+    const RUN_COLORS = [
+        '#ef4444', // Red
+        '#f97316', // Orange
+        '#eab308', // Yellow
+        '#22c55e', // Green
+        '#3b82f6', // Blue
+        '#6366f1', // Indigo
+        '#a855f7', // Purple
+        '#ec4899'  // Pink
+    ];
     
     export function flatten() {
         if (rawImageNode) {
@@ -148,9 +160,15 @@
             }
         });
         
+        // Find uniquely established runs based on chronological insertion order
+        const uniqueRunIds = Array.from(new Set(state.stubs.map(s => s.runId)));
+
         state.stubs.forEach(stub => {
             let group = mainLayer.findOne('#' + stub.id) as Konva.Group;
             const labelText = stub.isBox ? stub.runId : `${stub.runId}-${stub.index}`;
+            
+            const runIndex = uniqueRunIds.indexOf(stub.runId);
+            const runColor = RUN_COLORS[runIndex % RUN_COLORS.length];
 
             if (!group) {
                 group = new Konva.Group({
@@ -160,11 +178,11 @@
 
                 if (stub.isBox) {
                     group.add(new Konva.Rect({
-                        x: -12, y: -12, width: 24, height: 24, fill: '#f59e0b', name: 'shape'
+                        x: -12, y: -12, width: 24, height: 24, fill: runColor, name: 'shape'
                     }));
                 } else {
                     group.add(new Konva.Circle({
-                        radius: 10, fill: '#3b82f6', name: 'shape'
+                        radius: 10, fill: runColor, name: 'shape'
                     }));
                 }
 
@@ -179,6 +197,9 @@
                 group.setAttrs({ x: stub.x, y: stub.y, draggable: isInteractive });
                 const textNode = group.findOne('.label') as Konva.Text;
                 if (textNode) textNode.text(labelText);
+                
+                const shapeNode = group.findOne('.shape') as Konva.Shape;
+                if (shapeNode) shapeNode.fill(runColor);
             }
         });
 

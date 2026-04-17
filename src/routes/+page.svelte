@@ -10,7 +10,6 @@
         project.update(p => ({ ...p, currentRunId: 'A', currentRunType: 'DAISY_CHAIN' }));
     }
 
-    // Determine distinct runs dynamically 
     $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType);
     
     function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined) {
@@ -29,7 +28,6 @@
             
             return Object.entries(runsMap)
                 .map(([id, data]) => {
-                    // If Home Run, subtract 1 to exclude the 'box' from the label count
                     let displayCount = data.count;
                     if (data.type === 'HOME_RUN' && displayCount > 0) {
                         displayCount -= 1;
@@ -114,8 +112,6 @@
         });
     }
 
-    
-    // Define the options for the dropdowns
     const resolutions = [
         { label: "Very Low (20)", value: 20 },
         { label: "Low (10)", value: 10 },
@@ -123,13 +119,11 @@
         { label: "Ultra (2)", value: 2 }
     ];
 
-    // Create an array [1, 2, ..., 20]
     const maxOverlapOptions = Array.from({ length: 20 }, (_, i) => i + 1);
 
 </script>
 
 <div class="app-layout">
-    <!-- Top Toolbar Area -->
     <header class="top-toolbar">
         {#if $project.stage === 'SETUP'}
             <div class="toolbar-section">
@@ -148,6 +142,9 @@
         {:else}
             <!-- Stubs / Planning Tools -->
             <div class="toolbar-section">
+                <button class="btn icon-btn tool-btn" class:active={activeTool === 'pan'} on:click={() => activeTool = 'pan'}>
+                    🖐️ Pan
+                </button>
                 <button class="btn icon-btn tool-btn" class:active={activeTool === 'stub'} on:click={() => activeTool = 'stub'}>
                     📍 Place Stubs
                 </button>
@@ -203,11 +200,8 @@
             
             <div class="spacer"></div>
 
-
             <!-- Resolution & Overlap Control -->
             <div class="toolbar-section">
-                
-                <!-- Resolution Dropdown -->
                 <select 
                     class="select-sm" 
                     title="Grid Resolution" 
@@ -219,7 +213,6 @@
                     {/each}
                 </select>
 
-                <!-- Max Overlap Dropdown -->
                 <select 
                     class="select-sm" 
                     title="Maximum overlapping path lines allowed" 
@@ -230,13 +223,11 @@
                         <option value={num}>Max Overlap: {num}</option>
                     {/each}
                 </select>
-</div>
+            </div>
         {/if}
     </header>
 
-    <!-- Main Canvas Area -->
     <main class="canvas-area">
-        <!-- Pass the globally set maxOverlap directly into the canvas config -->
         <Canvas 
             bind:this={canvasRef} 
             {activeTool} 
@@ -247,7 +238,6 @@
 </div>
 
 <style>
-    /* Global Reset overrides to allow full screen Layout */
     :global(body, html) { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background-color: #f3f4f6; color: #111827; }
     
     .app-layout {
@@ -258,7 +248,6 @@
         overflow: hidden;
     }
 
-    /* --- Top Toolbar Area --- */
     .top-toolbar {
         display: flex;
         align-items: center;
@@ -274,39 +263,12 @@
         white-space: nowrap;
     }
 
-    .toolbar-section {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
+    .toolbar-section { display: flex; align-items: center; gap: 0.5rem; }
+    .spacer { flex-grow: 1; }
+    .title { font-weight: 600; color: #374151; font-size: 0.9rem; margin-right: 0.25rem; }
+    .divider { width: 1px; height: 24px; background: #d1d5db; margin: 0 0.25rem; }
+    .divider-thick { width: 3px; height: 32px; background: #9ca3af; border-radius: 2px; margin: 0 0.5rem; }
 
-    .spacer {
-        flex-grow: 1;
-    }
-
-    .title {
-        font-weight: 600;
-        color: #374151;
-        font-size: 0.9rem;
-        margin-right: 0.25rem;
-    }
-
-    .divider {
-        width: 1px;
-        height: 24px;
-        background: #d1d5db;
-        margin: 0 0.25rem;
-    }
-
-    .divider-thick {
-        width: 3px;
-        height: 32px;
-        background: #9ca3af;
-        border-radius: 2px;
-        margin: 0 0.5rem;
-    }
-
-    /* Controls & Buttons */
     .btn { 
         padding: 0.45rem 0.85rem; 
         border: 1px solid #d1d5db; 
@@ -332,7 +294,6 @@
     .text-sm { font-size: 0.75rem; padding: 0.35rem 0.6rem; }
     .file-btn { margin: 0; cursor: pointer; }
 
-    /* Tools Highlight */
     .tool-btn { color: #4b5563; }
     .tool-btn.active { background: #e0e7ff; color: #3730a3; border-color: #818cf8; box-shadow: 0 0 0 1px #818cf8; }
 
@@ -368,7 +329,6 @@
     }
     .radio-group label { display: flex; align-items: center; gap: 0.25rem; cursor: pointer; }
 
-    /* --- Main Canvas Area --- */
     .canvas-area {
         flex: 1;
         position: relative;
@@ -376,7 +336,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        overflow: auto;
-        padding: 2rem;
+        overflow: hidden;
+        padding: 0;
     }
 </style>

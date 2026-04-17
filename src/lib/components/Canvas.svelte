@@ -14,10 +14,9 @@
     };
 
     export let gridResolution: number = 10;
-    // Unified tool state: 'stub', 'rectangle', 'line', 'vh_line', 'freehand', 'circle', 'oval'
+    // Unified tool state: 'pan', 'stub', 'rectangle', 'line', 'vh_line', 'freehand', 'circle', 'oval'
     export let activeTool: string = 'stub';
-    export let maxOverlap: number = 3; // <-- NEW: Tell Canvas to accept this prop
-    
+    export let maxOverlap: number = 3; 
 
     let container: HTMLDivElement;
     let stage: Konva.Stage;
@@ -26,30 +25,47 @@
     let mainLayer: Konva.Layer;
     let uiLayer: Konva.Layer;
     let tr: Konva.Transformer;
+    let resizeObserver: ResizeObserver;
     
     // Internal trackers
     let rawImageNode: Konva.Image | null = null;
     let isDrawing = false;
     let drawStartPos: { x: number, y: number } | null = null;
     let previewShape: Konva.Shape | null = null;
+    
+    // Touch / Pan variables
+    let isMultiTouch = false;
+    let lastDist = 0;
+    let lastCenter: { x: number, y: number } | null = null;
 
     // Loopable color palette
     const RUN_COLORS = [
-        '#ef4444', // Red
-        '#f97316', // Orange
-        '#eab308', // Yellow
-        '#22c55e', // Green
-        '#3b82f6', // Blue
-        '#6366f1', // Indigo
-        '#a855f7', // Purple
-        '#ec4899'  // Pink
+        '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#6366f1', '#a855f7', '#ec4899'
     ];
     
+    // Toggle standard stage panning when the Pan tool is active
+    $: if (stage) {
+        stage.draggable(activeTool === 'pan');
+    }
+
     export function flatten() {
         if (rawImageNode) {
             tr.nodes([]);
             uiLayer.batchDraw();
+
+            // Temporarily reset zoom/pan to capture properly
+            const oldScale = stage.scaleX();
+            const oldPos = stage.position();
+            stage.scale({ x: 1, y: 1 });
+            stage.position({ x: 0, y: 0 });
+            stage.batchDraw();
+
             const dataUrl = mainLayer.toDataURL({ pixelRatio: 1 });
+
+            // Restore zoom/pan
+            stage.scale({ x: oldScale, y: oldScale });
+            stage.position(oldPos);
+
             rawImageNode.destroy();
             rawImageNode = null;
             // Transitioning stage out of setup turns on interactive mode
@@ -58,7 +74,14 @@
     }
 
     onMount(() => {
-        stage = new Konva.Stage({ container, width: 800, height: 600 });
+        const { clientWidth, clientHeight } = container;
+        stage = new Konva.Stage({ 
+            container, 
+            width: clientWidth || 800, 
+            height: clientHeight || 600,
+            draggable: activeTool === 'pan' 
+        });
+        
         bgLayer = new Konva.Layer();
         pathLayer = new Konva.Layer();
         mainLayer = new Konva.Layer();
@@ -66,16 +89,41 @@
 
         stage.add(bgLayer, pathLayer, mainLayer, uiLayer);
 
-        const bgRect = new Konva.Rect({ width: 800, height: 600, fill: '#f4f4f5', name: 'bg' });
+        const bgRect = new Konva.Rect({ 
+            width: clientWidth || 800, 
+            height: clientHeight || 600, 
+            fill: '#f4f4f5', 
+            name: 'bg' 
+        });
         bgLayer.add(bgRect);
 
         tr = new Konva.Transformer();
         uiLayer.add(tr);
 
-        stage.on('click', handleStageClick);
-        stage.on('mousedown', handleMouseDown);
-        stage.on('mousemove', handleMouseMove);
-        stage.on('mouseup', handleMouseUp);
+        // Keep canvas size fully responsive to window/container changes
+        resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const { width, height } = entry.contentRect;
+                stage.width(width);
+                stage.height(height);
+                const bgNode = bgLayer.findOne('.bg') as Konva.Rect;
+                if (bgNode) {
+                    bgNode.width(width);
+                    bgNode.height(height);
+                }
+                stage.batchDraw();
+            }
+        });
+        resizeObserver.observe(container);
+
+        stage.on('click tap', handleStageClick);
+        stage.on('mousedown touchstart', handleMouseDown);
+        stage.on('mousemove touchmove', handleMouseMove);
+        stage.on('mouseup touchend', handleMouseUp);
+        stage.on('wheel', handleWheel);
+        stage.on('touchmove', handleTouchMove);
+        stage.on('touchend', handleTouchEnd);
+
         window.addEventListener('keydown', handleKeyDown);
 
         const unsubscribe = project.subscribe(syncStateToCanvas);
@@ -83,6 +131,7 @@
         return () => {
             unsubscribe();
             window.removeEventListener('keydown', handleKeyDown);
+            if (resizeObserver) resizeObserver.disconnect();
             stage.destroy();
         };
     });
@@ -104,7 +153,7 @@
             const img = new window.Image();
             img.src = state.image;
             img.onload = () => {
-                const bgNode = new Konva.Image({ image: img, name: 'flattened', x: 0, y: 0, width: 800, height: 600 });
+                const bgNode = new Konva.Image({ image: img, name: 'flattened', x: 0, y: 0 });
                 bgLayer.add(bgNode);
                 bgLayer.batchDraw();
             };
@@ -160,7 +209,6 @@
             }
         });
         
-        // Find uniquely established runs based on chronological insertion order
         const uniqueRunIds = Array.from(new Set(state.stubs.map(s => s.runId)));
 
         state.stubs.forEach(stub => {
@@ -205,7 +253,6 @@
 
         if (!isInteractive) tr.nodes([]);
 
-        // Calculate paths interactively dynamically
         pathLayer.destroyChildren();
         if (state.stage !== 'SETUP') {
             const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, maxOverlap);
@@ -221,7 +268,10 @@
         stage.batchDraw();
     }
 
-    function handleStageClick(e: KonvaEventObject<MouseEvent>) {
+    // ---------- Event Handlers for Draw/Click ----------
+
+    function handleStageClick(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+        if (activeTool === 'pan' || isMultiTouch) return;
         const state = get(project);
 
         let target = e.target;
@@ -231,7 +281,7 @@
             tr.nodes([]); 
             
             if (activeTool === 'stub' && state.stage !== 'SETUP') {
-                const pos = stage.getPointerPosition();
+                const pos = stage.getRelativePointerPosition();
                 if (!pos) return;
                 
                 project.update(p => {
@@ -290,13 +340,19 @@
         }
     }
     
-    function handleMouseDown(e: KonvaEventObject<MouseEvent>) {
+    function handleMouseDown(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+        if (activeTool === 'pan' || isMultiTouch) return;
+        
+        // Prevent drawing if this is a multi-touch start
+        const evt = e.evt as TouchEvent;
+        if (evt.touches && evt.touches.length > 1) return;
+
         const state = get(project);
         if (state.stage === 'SETUP') return;
         if (activeTool === 'stub') return;
         if (e.target !== stage && e.target.name() !== 'bg' && e.target.name() !== 'flattened') return;
 
-        const pos = stage.getPointerPosition();
+        const pos = stage.getRelativePointerPosition();
         if (!pos) return;
 
         isDrawing = true;
@@ -315,9 +371,13 @@
         uiLayer.add(previewShape);
     }
 
-    function handleMouseMove() {
-        if (!isDrawing || !previewShape || !drawStartPos) return;
-        const pos = stage.getPointerPosition();
+    function handleMouseMove(e: KonvaEventObject<MouseEvent | TouchEvent>) {
+        if (activeTool === 'pan' || isMultiTouch || !isDrawing || !previewShape || !drawStartPos) return;
+        
+        const evt = e.evt as TouchEvent;
+        if (evt.touches && evt.touches.length > 1) return;
+
+        const pos = stage.getRelativePointerPosition();
         if (!pos) return;
 
         const dx = pos.x - drawStartPos.x;
@@ -356,7 +416,7 @@
     }
 
     function handleMouseUp() {
-        if (!isDrawing || !previewShape) return;
+        if (activeTool === 'pan' || !isDrawing || !previewShape) return;
         isDrawing = false;
         
         let x = 0, y = 0, w = 0, h = 0;
@@ -388,7 +448,6 @@
             x = minX; y = minY;
             w = maxX - minX; h = maxY - minY;
             
-            // Normalize points relative to top-left coordinate (x,y)
             finalPoints = pts.map((val, i) => i % 2 === 0 ? val - x : val - y);
         }
 
@@ -396,10 +455,7 @@
         previewShape = null;
         uiLayer.batchDraw();
 
-        // Ensure single stray accidental clicks are ignored completely
         if (w < 5 && h < 5) return; 
-
-        // Apply a minimum bounding box threshold so flat lines have area in pathfinding matrix
         if (w < 5) w = 5;
         if (h < 5) h = 5;
 
@@ -409,6 +465,114 @@
         }));
     }
 
+    // ---------- Camera & Pan/Zoom Logic ----------
+    
+    function getDistance(p1: { x: number, y: number }, p2: { x: number, y: number }) {
+        return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+    }
+
+    function getCenter(p1: { x: number, y: number }, p2: { x: number, y: number }) {
+        return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    }
+
+    function handleTouchMove(e: KonvaEventObject<TouchEvent>) {
+        const touch1 = e.evt.touches[0];
+        const touch2 = e.evt.touches[1];
+
+        if (touch1 && touch2) {
+            e.evt.preventDefault();
+            isMultiTouch = true;
+            
+            // Cancel drawing if two fingers are placed down
+            if (isDrawing) {
+                isDrawing = false;
+                if (previewShape) {
+                    previewShape.destroy();
+                    previewShape = null;
+                    uiLayer.batchDraw();
+                }
+            }
+
+            const p1 = { x: touch1.clientX, y: touch1.clientY };
+            const p2 = { x: touch2.clientX, y: touch2.clientY };
+
+            const newDist = getDistance(p1, p2);
+            const newCenter = getCenter(p1, p2);
+
+            if (!lastCenter) {
+                lastCenter = newCenter;
+                lastDist = newDist;
+                return;
+            }
+
+            const oldScale = stage.scaleX();
+            let newScale = oldScale * (newDist / lastDist);
+            
+            // Constrain Zoom Extents
+            if (newScale < 0.1) newScale = 0.1;
+            if (newScale > 10) newScale = 10;
+
+            const pointTo = {
+                x: (newCenter.x - stage.x()) / oldScale,
+                y: (newCenter.y - stage.y()) / oldScale,
+            };
+
+            stage.scale({ x: newScale, y: newScale });
+
+            const dx = newCenter.x - lastCenter.x;
+            const dy = newCenter.y - lastCenter.y;
+
+            const newPos = {
+                x: newCenter.x - pointTo.x * newScale + dx,
+                y: newCenter.y - pointTo.y * newScale + dy,
+            };
+
+            stage.position(newPos);
+            stage.batchDraw();
+
+            lastDist = newDist;
+            lastCenter = newCenter;
+        }
+    }
+
+    function handleTouchEnd() {
+        lastDist = 0;
+        lastCenter = null;
+        setTimeout(() => { isMultiTouch = false; }, 50);
+    }
+
+    function handleWheel(e: KonvaEventObject<WheelEvent>) {
+        e.evt.preventDefault();
+        const scaleBy = 1.1;
+        const oldScale = stage.scaleX();
+        const pointer = stage.getPointerPosition(); // Absolute coords relative to container
+        if (!pointer) return;
+
+        const mousePointTo = {
+            x: (pointer.x - stage.x()) / oldScale,
+            y: (pointer.y - stage.y()) / oldScale,
+        };
+
+        // Zoom In or Out
+        let newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+        
+        // Constrain Zoom Extents
+        if (newScale < 0.1) newScale = 0.1;
+        if (newScale > 10) newScale = 10;
+
+        stage.scale({ x: newScale, y: newScale });
+
+        const newPos = {
+            x: pointer.x - mousePointTo.x * newScale,
+            y: pointer.y - mousePointTo.y * newScale,
+        };
+        
+        stage.position(newPos);
+        stage.batchDraw();
+    }
+
+    // ---------- Update Elements ----------
+    
     function updateObstruction(id: string, node: Konva.Node) {
         project.update(p => {
             const obs = p.obstructions.find(o => o.id === id) as ExtendedObstruction | undefined;
@@ -467,5 +631,12 @@
 <div class="canvas-wrapper" bind:this={container}></div>
 
 <style>
-    .canvas-wrapper { width: 800px; height: 600px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 2px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; margin: auto; }
+    .canvas-wrapper { 
+        width: 100%; 
+        height: 100%; 
+        background: #fff; 
+        outline: none;
+        /* Critical for preventing native scroll/pull-down-to-refresh on mobile canvas actions */
+        touch-action: none;
+    }
 </style>

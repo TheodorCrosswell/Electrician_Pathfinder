@@ -143,6 +143,11 @@
         {#if $project.stage === 'SETUP'}
             <div class="setup-panel">
                 <span class="title setup-title">Setup Floorplan:</span>
+                {#if $project.rawImage}
+                    <span class="instruction-text">
+                        Drag and resize the blue box to crop. <br/>Use the 🖐️ Pan tool to scroll.
+                    </span>
+                {/if}
                 <button class="btn main-btn" on:click={loadTestImage}>Use Test Image</button>
                 <label class="btn main-btn file-btn">
                     Upload Floorplan
@@ -150,7 +155,7 @@
                 </label>
                 <div class="divider-horizontal"></div>
                 <button class="btn main-btn primary" disabled={!$project.rawImage} on:click={() => canvasRef.flatten()}>
-                    Flatten & Lock Image
+                    Crop & Lock Image
                 </button>
             </div>
         {:else}
@@ -301,8 +306,10 @@
         border-radius: 12px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         border: 1px solid #d1d5db;
+        max-width: 250px;
     }
     .setup-title { margin-bottom: 0.25rem; font-size: 1rem; }
+    .instruction-text { font-size: 0.8rem; color: #4b5563; margin-top: -0.5rem; margin-bottom: 0.25rem; line-height: 1.3; }
 
     .menu-container {
         position: relative;

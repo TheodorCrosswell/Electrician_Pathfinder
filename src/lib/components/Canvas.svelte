@@ -53,23 +53,42 @@
             tr.nodes([]);
             uiLayer.batchDraw();
 
-            // Temporarily reset zoom/pan to capture properly
+            const cropNode = mainLayer.findOne('.crop-rect') as Konva.Rect;
+
+            // Temporarily reset zoom/pan to capture properly at true dimensions
             const oldScale = stage.scaleX();
             const oldPos = stage.position();
             stage.scale({ x: 1, y: 1 });
             stage.position({ x: 0, y: 0 });
             stage.batchDraw();
 
-            const dataUrl = mainLayer.toDataURL({ pixelRatio: 1 });
+            // Get the bounding box of the crop rectangle (or the image if missing)
+            const box = cropNode ? cropNode.getClientRect() : rawImageNode.getClientRect();
+
+            // Keep maximum resolution quality (reverse any scaled-down effects)
+            const nodeScale = rawImageNode.scaleX();
+            const pixelRatio = nodeScale < 1 ? (1 / nodeScale) : 1;
+
+            if (cropNode) cropNode.hide();
+
+            const dataUrl = mainLayer.toDataURL({ 
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
+                pixelRatio: pixelRatio 
+            });
 
             // Restore zoom/pan
             stage.scale({ x: oldScale, y: oldScale });
             stage.position(oldPos);
 
+            if (cropNode) cropNode.destroy();
             rawImageNode.destroy();
             rawImageNode = null;
+
             // Transitioning stage out of setup turns on interactive mode
-            project.update(p => ({ ...p, image: dataUrl, rawImage: null, stage: 'STUBS' }));
+            project.update(p => ({ ...p, image: dataUrl, rawImage: null, stage: 'STUBS' as ProjectState['stage'] }));
         }
     }
 
@@ -100,16 +119,21 @@
         tr = new Konva.Transformer();
         uiLayer.add(tr);
 
-        // Keep canvas size fully responsive to window/container changes
+        // Keep canvas view responsive
         resizeObserver = new ResizeObserver(entries => {
             for (let entry of entries) {
                 const { width, height } = entry.contentRect;
                 stage.width(width);
                 stage.height(height);
-                const bgNode = bgLayer.findOne('.bg') as Konva.Rect;
-                if (bgNode) {
-                    bgNode.width(width);
-                    bgNode.height(height);
+                
+                // Only stretch the background placeholder to screen size if we are in SETUP mode
+                const state = get(project);
+                if ((state.stage as string) === 'SETUP') {
+                    const bgNode = bgLayer.findOne('.bg') as Konva.Rect;
+                    if (bgNode) {
+                        bgNode.width(width);
+                        bgNode.height(height);
+                    }
                 }
                 stage.batchDraw();
             }
@@ -139,13 +163,57 @@
     function syncStateToCanvas(state: ProjectState) {
         if (!stage) return;
 
-        if (state.stage === 'SETUP' && state.rawImage && !rawImageNode) {
+        if ((state.stage as string) === 'SETUP' && state.rawImage && !rawImageNode) {
             const img = new window.Image();
             img.src = state.rawImage;
             img.onload = () => {
-                rawImageNode = new Konva.Image({ image: img, draggable: true, name: 'rawImage' });
+                const padding = 40;
+                const scaleX = (stage.width() - padding * 2) / img.width;
+                const scaleY = (stage.height() - padding * 2) / img.height;
+                let scale = Math.min(scaleX, scaleY, 1);
+
+                const startX = (stage.width() - img.width * scale) / 2;
+                const startY = (stage.height() - img.height * scale) / 2;
+
+                rawImageNode = new Konva.Image({ 
+                    image: img, 
+                    draggable: false, 
+                    name: 'rawImage',
+                    x: startX,
+                    y: startY,
+                    scaleX: scale,
+                    scaleY: scale
+                });
+
+                // Implement crop rectangle that users can manually adjust
+                const cropRect = new Konva.Rect({
+                    name: 'crop-rect',
+                    x: startX,
+                    y: startY,
+                    width: img.width * scale,
+                    height: img.height * scale,
+                    stroke: '#3b82f6',
+                    strokeWidth: 2,
+                    dash: [6, 6],
+                    draggable: true
+                });
+
+                // Convert scale manipulations to absolute width/height for accurate cropping bounding box
+                cropRect.on('transform', () => {
+                    cropRect.setAttrs({
+                        width: Math.max(cropRect.width() * cropRect.scaleX(), 10),
+                        height: Math.max(cropRect.height() * cropRect.scaleY(), 10),
+                        scaleX: 1,
+                        scaleY: 1
+                    });
+                });
+
                 mainLayer.add(rawImageNode);
-                tr.nodes([rawImageNode]);
+                mainLayer.add(cropRect);
+
+                tr.nodes([cropRect]);
+                tr.enabledAnchors(['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left']);
+
                 mainLayer.batchDraw();
                 uiLayer.batchDraw();
             };
@@ -155,11 +223,36 @@
             img.onload = () => {
                 const bgNode = new Konva.Image({ image: img, name: 'flattened', x: 0, y: 0 });
                 bgLayer.add(bgNode);
+                
+                // Shrink the background document strictly to the new cropped image bounds
+                const bgRect = bgLayer.findOne('.bg') as Konva.Rect;
+                if (bgRect) {
+                    bgRect.width(img.width);
+                    bgRect.height(img.height);
+                    bgRect.fill('#ffffff');
+                    bgRect.shadowColor('rgba(0,0,0,0.15)');
+                    bgRect.shadowBlur(10);
+                    bgRect.shadowOffset({ x: 0, y: 5 });
+                }
+
+                // Frame the cropped document to fit nicely in the screen viewport
+                const padding = 40;
+                const scaleX = (stage.width() - padding * 2) / img.width;
+                const scaleY = (stage.height() - padding * 2) / img.height;
+                const fitScale = Math.min(scaleX, scaleY, 1);
+                
+                stage.scale({ x: fitScale, y: fitScale });
+                stage.position({
+                    x: (stage.width() - img.width * fitScale) / 2,
+                    y: (stage.height() - img.height * fitScale) / 2
+                });
+
                 bgLayer.batchDraw();
+                stage.batchDraw();
             };
         }
 
-        const isInteractive = state.stage !== 'SETUP';
+        const isInteractive = (state.stage as string) !== 'SETUP';
 
         const existingObs = mainLayer.find('.obstruction');
         existingObs.forEach(node => {
@@ -254,7 +347,7 @@
         if (!isInteractive) tr.nodes([]);
 
         pathLayer.destroyChildren();
-        if (state.stage !== 'SETUP') {
+        if ((state.stage as string) !== 'SETUP') {
             const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, maxOverlap);
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
@@ -277,10 +370,20 @@
         let target = e.target;
         let isBg = target === stage || target.name() === 'bg' || target.name() === 'flattened';
 
+        if ((state.stage as string) === 'SETUP') {
+            // Re-select crop rectangle unconditionally if they interact with the stage during setup
+            const cropNode = mainLayer.findOne('.crop-rect');
+            if (cropNode) {
+                tr.nodes([cropNode]);
+                tr.enabledAnchors(['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left']);
+            }
+            return;
+        }
+
         if (isBg) {
             tr.nodes([]); 
             
-            if (activeTool === 'stub' && state.stage !== 'SETUP') {
+            if (activeTool === 'stub' && (state.stage as string) !== 'SETUP') {
                 const pos = stage.getRelativePointerPosition();
                 if (!pos) return;
                 
@@ -313,8 +416,6 @@
                 });
             }
         } else {
-            if (state.stage === 'SETUP' && target.name() !== 'rawImage') return;
-            
             let nodeToTransform: Konva.Node = target;
             if (nodeToTransform.parent && nodeToTransform.parent.name() === 'stub-group') {
                 nodeToTransform = nodeToTransform.parent;
@@ -348,7 +449,7 @@
         if (evt.touches && evt.touches.length > 1) return;
 
         const state = get(project);
-        if (state.stage === 'SETUP') return;
+        if ((state.stage as string) === 'SETUP') return;
         if (activeTool === 'stub') return;
         if (e.target !== stage && e.target.name() !== 'bg' && e.target.name() !== 'flattened') return;
 
@@ -616,7 +717,12 @@
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const nodes = tr.nodes();
             if (nodes.length > 0) {
-                const id = nodes[0].id();
+                const node = nodes[0];
+                
+                // Prevent deletion of setup elements
+                if (node.name() === 'crop-rect' || node.name() === 'rawImage') return;
+
+                const id = node.id();
                 tr.nodes([]);
                 project.update(p => ({
                     ...p,
@@ -634,7 +740,7 @@
     .canvas-wrapper { 
         width: 100%; 
         height: 100%; 
-        background: #fff; 
+        background: #e5e7eb; 
         outline: none;
         /* Critical for preventing native scroll/pull-down-to-refresh on mobile canvas actions */
         touch-action: none;

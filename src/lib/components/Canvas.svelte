@@ -324,7 +324,7 @@
 
         state.stubs.forEach(stub => {
             let group = mainLayer.findOne('#' + stub.id) as Konva.Group;
-            const labelText = stub.isBox ? stub.runId : `${stub.runId}-${stub.index}`;
+            const labelText = stub.isBox ? stub.runId : `${stub.runId}${stub.index}`;
             
             const runIndex = uniqueRunIds.indexOf(stub.runId);
             const runColor = RUN_COLORS[runIndex % RUN_COLORS.length];
@@ -337,17 +337,20 @@
 
                 if (stub.isBox) {
                     group.add(new Konva.Rect({
-                        x: -12, y: -12, width: 24, height: 24, fill: runColor, name: 'shape'
+                        x: -14, y: -14, width: 28, height: 28, fill: runColor, name: 'shape'
                     }));
                 } else {
                     group.add(new Konva.Circle({
-                        radius: 10, fill: runColor, name: 'shape'
+                        radius: 14, fill: runColor, name: 'shape'
                     }));
                 }
 
                 group.add(new Konva.Text({
-                    text: labelText, x: 14, y: -14,
-                    fontSize: 16, fontFamily: 'sans-serif', fontWeight: 'bold', fill: '#1f2937', name: 'label'
+                    text: labelText, 
+                    x: -20, y: -20, 
+                    width: 40, height: 40,
+                    align: 'center', verticalAlign: 'middle',
+                    fontSize: 12, fontFamily: 'sans-serif', fontWeight: 'bold', fill: '#ffffff', name: 'label'
                 }));
 
                 group.on('dragend', () => updateStub(stub.id, group));

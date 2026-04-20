@@ -16,7 +16,6 @@
     export let gridResolution: number = 10;
     // Unified tool state: 'pan', 'stub', 'rectangle', 'line', 'vh_line', 'freehand', 'circle', 'oval'
     export let activeTool: string = 'stub';
-    export let maxOverlap: number = 3; 
 
     let container: HTMLDivElement;
     let stage: Konva.Stage;
@@ -43,7 +42,6 @@
         '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#6366f1', '#a855f7', '#ec4899'
     ];
     
-    // Toggle standard stage panning when the Pan tool is active
     $: if (stage) {
         stage.draggable(activeTool === 'pan');
     }
@@ -55,17 +53,14 @@
 
             const cropNode = mainLayer.findOne('.crop-rect') as Konva.Rect;
 
-            // Temporarily reset zoom/pan to capture properly at true dimensions
             const oldScale = stage.scaleX();
             const oldPos = stage.position();
             stage.scale({ x: 1, y: 1 });
             stage.position({ x: 0, y: 0 });
             stage.batchDraw();
 
-            // Get the bounding box of the crop rectangle (or the image if missing)
             const box = cropNode ? cropNode.getClientRect() : rawImageNode.getClientRect();
 
-            // Keep maximum resolution quality (reverse any scaled-down effects)
             const nodeScale = rawImageNode.scaleX();
             const pixelRatio = nodeScale < 1 ? (1 / nodeScale) : 1;
 
@@ -79,7 +74,6 @@
                 pixelRatio: pixelRatio 
             });
 
-            // Restore zoom/pan
             stage.scale({ x: oldScale, y: oldScale });
             stage.position(oldPos);
 
@@ -87,7 +81,6 @@
             rawImageNode.destroy();
             rawImageNode = null;
 
-            // Transitioning stage out of setup turns on interactive mode
             project.update(p => ({ ...p, image: dataUrl, rawImage: null, stage: 'STUBS' as ProjectState['stage'] }));
         }
     }
@@ -119,14 +112,12 @@
         tr = new Konva.Transformer();
         uiLayer.add(tr);
 
-        // Keep canvas view responsive
         resizeObserver = new ResizeObserver(entries => {
             for (let entry of entries) {
                 const { width, height } = entry.contentRect;
                 stage.width(width);
                 stage.height(height);
                 
-                // Only stretch the background placeholder to screen size if we are in SETUP mode
                 const state = get(project);
                 if ((state.stage as string) === 'SETUP') {
                     const bgNode = bgLayer.findOne('.bg') as Konva.Rect;
@@ -185,7 +176,6 @@
                     scaleY: scale
                 });
 
-                // Implement crop rectangle that users can manually adjust
                 const cropRect = new Konva.Rect({
                     name: 'crop-rect',
                     x: startX,
@@ -198,7 +188,6 @@
                     draggable: true
                 });
 
-                // Convert scale manipulations to absolute width/height for accurate cropping bounding box
                 cropRect.on('transform', () => {
                     cropRect.setAttrs({
                         width: Math.max(cropRect.width() * cropRect.scaleX(), 10),
@@ -224,7 +213,6 @@
                 const bgNode = new Konva.Image({ image: img, name: 'flattened', x: 0, y: 0 });
                 bgLayer.add(bgNode);
                 
-                // Shrink the background document strictly to the new cropped image bounds
                 const bgRect = bgLayer.findOne('.bg') as Konva.Rect;
                 if (bgRect) {
                     bgRect.width(img.width);
@@ -235,7 +223,6 @@
                     bgRect.shadowOffset({ x: 0, y: 5 });
                 }
 
-                // Frame the cropped document to fit nicely in the screen viewport
                 const padding = 40;
                 const scaleX = (stage.width() - padding * 2) / img.width;
                 const scaleY = (stage.height() - padding * 2) / img.height;
@@ -348,7 +335,7 @@
 
         pathLayer.destroyChildren();
         if ((state.stage as string) !== 'SETUP') {
-            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, maxOverlap);
+            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, state.runConfigs || {});
             paths.forEach((p) => {
                 const flatPath = p.reduce((acc, val) => acc.concat(val), []);
                 const line = new Konva.Line({
@@ -361,8 +348,6 @@
         stage.batchDraw();
     }
 
-    // ---------- Event Handlers for Draw/Click ----------
-
     function handleStageClick(e: KonvaEventObject<MouseEvent | TouchEvent>) {
         if (activeTool === 'pan' || isMultiTouch) return;
         const state = get(project);
@@ -371,7 +356,6 @@
         let isBg = target === stage || target.name() === 'bg' || target.name() === 'flattened';
 
         if ((state.stage as string) === 'SETUP') {
-            // Re-select crop rectangle unconditionally if they interact with the stage during setup
             const cropNode = mainLayer.findOne('.crop-rect');
             if (cropNode) {
                 tr.nodes([cropNode]);
@@ -444,7 +428,6 @@
     function handleMouseDown(e: KonvaEventObject<MouseEvent | TouchEvent>) {
         if (activeTool === 'pan' || isMultiTouch) return;
         
-        // Prevent drawing if this is a multi-touch start
         const evt = e.evt as TouchEvent;
         if (evt.touches && evt.touches.length > 1) return;
 
@@ -566,8 +549,6 @@
         }));
     }
 
-    // ---------- Camera & Pan/Zoom Logic ----------
-    
     function getDistance(p1: { x: number, y: number }, p2: { x: number, y: number }) {
         return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
     }
@@ -584,7 +565,6 @@
             e.evt.preventDefault();
             isMultiTouch = true;
             
-            // Cancel drawing if two fingers are placed down
             if (isDrawing) {
                 isDrawing = false;
                 if (previewShape) {
@@ -609,7 +589,6 @@
             const oldScale = stage.scaleX();
             let newScale = oldScale * (newDist / lastDist);
             
-            // Constrain Zoom Extents
             if (newScale < 0.1) newScale = 0.1;
             if (newScale > 10) newScale = 10;
 
@@ -646,7 +625,7 @@
         e.evt.preventDefault();
         const scaleBy = 1.1;
         const oldScale = stage.scaleX();
-        const pointer = stage.getPointerPosition(); // Absolute coords relative to container
+        const pointer = stage.getPointerPosition(); 
         if (!pointer) return;
 
         const mousePointTo = {
@@ -654,10 +633,8 @@
             y: (pointer.y - stage.y()) / oldScale,
         };
 
-        // Zoom In or Out
         let newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
         
-        // Constrain Zoom Extents
         if (newScale < 0.1) newScale = 0.1;
         if (newScale > 10) newScale = 10;
 
@@ -671,8 +648,6 @@
         stage.position(newPos);
         stage.batchDraw();
     }
-
-    // ---------- Update Elements ----------
     
     function updateObstruction(id: string, node: Konva.Node) {
         project.update(p => {
@@ -719,7 +694,6 @@
             if (nodes.length > 0) {
                 const node = nodes[0];
                 
-                // Prevent deletion of setup elements
                 if (node.name() === 'crop-rect' || node.name() === 'rawImage') return;
 
                 const id = node.id();
@@ -734,15 +708,4 @@
     }
 </script>
 
-<div class="canvas-wrapper" bind:this={container}></div>
-
-<style>
-    .canvas-wrapper { 
-        width: 100%; 
-        height: 100%; 
-        background: #e5e7eb; 
-        outline: none;
-        /* Critical for preventing native scroll/pull-down-to-refresh on mobile canvas actions */
-        touch-action: none;
-    }
-</style>
+<div bind:this={container} class="w-full h-full"></div>

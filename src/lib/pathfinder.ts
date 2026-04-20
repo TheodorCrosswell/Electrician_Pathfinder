@@ -1,6 +1,6 @@
 // src/lib/pathfinder.ts
 import * as PF from 'pathfinding';
-import type { Stub, Obstruction } from './types';
+import type { Stub, Obstruction, RunConfig } from './types';
 
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
@@ -9,7 +9,7 @@ export function calculatePaths(
     stubs: Stub[], 
     obstructions: Obstruction[], 
     cellSize: number = 10,
-    maxOverlap: number = 3 // Limit how many paths can share the same grid tile
+    runConfigs: Record<string, RunConfig> = {} 
 ): number[][][] {
     if (stubs.length < 2) return [];
 
@@ -33,8 +33,6 @@ export function calculatePaths(
         }
     });
 
-    // We allow diagonals so it CAN squeeze through if forced to, 
-    // but our smoother will turn them into 90-degree lines whenever possible.
     const finder = new PF.AStarFinder({
         allowDiagonal: true,
         dontCrossCorners: true
@@ -54,24 +52,25 @@ export function calculatePaths(
         if (runStubs.length < 2) continue;
 
         const runType = runStubs[0].runType;
+        const maxOverlap = runConfigs[runId]?.maxOverlap ?? 3;
 
         if (runType === 'DAISY_CHAIN') {
             runStubs.sort((a, b) => a.index - b.index);
             for (let i = 0; i < runStubs.length - 1; i++) {
-                route(runStubs[i], runStubs[i + 1]);
+                route(runStubs[i], runStubs[i + 1], maxOverlap);
             }
         } else if (runType === 'HOME_RUN') {
             const box = runStubs.find(s => s.isBox);
-            if (!box) continue; // Run requires a Box component
+            if (!box) continue; 
             
             for (const stub of runStubs) {
                 if (stub === box) continue;
-                route(stub, box);
+                route(stub, box, maxOverlap);
             }
         }
     }
 
-    function route(start: Stub, end: Stub) {
+    function route(start: Stub, end: Stub, maxOverlap: number) {
         const sx = Math.max(0, Math.min(cols - 1, Math.floor(start.x / cellSize)));
         const sy = Math.max(0, Math.min(rows - 1, Math.floor(start.y / cellSize)));
         const ex = Math.max(0, Math.min(cols - 1, Math.floor(end.x / cellSize)));
@@ -86,7 +85,6 @@ export function calculatePaths(
         const rawPath = finder.findPath(sx, sy, ex, ey, gridBackup);
         
         if (rawPath.length > 0) {
-            // Force the path to make strict L-shapes where space allows
             const smoothedPath = smoothPath(rawPath, gridBackup);
             
             const canvasPath = smoothedPath.map(p => [
@@ -95,22 +93,17 @@ export function calculatePaths(
             ]);
             paths.push(canvasPath);
 
-            // Re-expand the smoothed corners back into step-by-step points so we can apply them to our usage grid
             const fullPath = expandPath(smoothedPath);
 
             fullPath.forEach(p => {
                 const px = p[0];
                 const py = p[1];
                 
-                // Do not add capacity counts to the start/end nodes or their immediate surrounding tiles.
-                // This prevents the tiles directly next to a component from bottlenecking
-                // multiple connections (e.g., allowing unlimited paths to converge into the box).
                 if ((Math.abs(px - sx) <= 1 && Math.abs(py - sy) <= 1) || 
                     (Math.abs(px - ex) <= 1 && Math.abs(py - ey) <= 1)) {
                     return;
                 }
                 
-                // Increment tile usage. If it hits the limit, mark it unwalkable for future paths.
                 usageGrid[py][px]++;
                 if (usageGrid[py][px] >= maxOverlap) {
                     grid.setWalkableAt(px, py, false);
@@ -124,10 +117,6 @@ export function calculatePaths(
 
 // --- Helper Functions ---
 
-/**
- * Sweeps through an A* path and enforces 90-degree corners whenever possible, 
- * vastly reducing bends and stripping away unnecessary zigzag/diagonal movement.
- */
 function smoothPath(path: number[][], grid: PF.Grid): number[][] {
     if (path.length <= 2) return path;
 
@@ -138,14 +127,12 @@ function smoothPath(path: number[][], grid: PF.Grid): number[][] {
         let nextIndex = currentIndex + 1;
         let bestLPath: number[][] | null = null;
 
-        // Look as far ahead as possible to find points that can be connected with a clean L-shape.
         for (let i = path.length - 1; i > currentIndex; i--) {
             const p1 = path[currentIndex];
             const p2 = path[i];
 
             if (p1[0] === p2[0] && p1[1] === p2[1]) continue;
 
-            // Try Horizontal -> Vertical L-shape
             const corner1 = [p2[0], p1[1]];
             if (isClearPath(p1, corner1, grid) && isClearPath(corner1, p2, grid)) {
                 bestLPath = [ corner1, p2 ];
@@ -153,7 +140,6 @@ function smoothPath(path: number[][], grid: PF.Grid): number[][] {
                 break;
             }
             
-            // Try Vertical -> Horizontal L-shape
             const corner2 = [p1[0], p2[1]];
             if (isClearPath(p1, corner2, grid) && isClearPath(corner2, p2, grid)) {
                 bestLPath = [ corner2, p2 ];
@@ -176,7 +162,6 @@ function smoothPath(path: number[][], grid: PF.Grid): number[][] {
             }
             currentIndex = nextIndex;
         } else {
-            // Keep the original next step (e.g., fallback if only a tight diagonal is available)
             const nextPt = path[currentIndex + 1];
             const last = smoothed[smoothed.length - 1];
             if (nextPt[0] !== last[0] || nextPt[1] !== last[1]) {
@@ -189,7 +174,6 @@ function smoothPath(path: number[][], grid: PF.Grid): number[][] {
     return compressStraightLines(smoothed);
 }
 
-/** Determines if an orthogonal straight line between two points hits any obstructions. */
 function isClearPath(pA: number[], pB: number[], grid: PF.Grid): boolean {
     const x1 = pA[0], y1 = pA[1];
     const x2 = pB[0], y2 = pB[1];
@@ -209,7 +193,6 @@ function isClearPath(pA: number[], pB: number[], grid: PF.Grid): boolean {
     return grid.isWalkableAt(x2, y2);
 }
 
-/** Takes just the corners of a path and generates every step in-between them for grid-blocking. */
 function expandPath(path: number[][]): number[][] {
     const expanded: number[][] = [];
     for (let i = 0; i < path.length - 1; i++) {
@@ -232,7 +215,6 @@ function expandPath(path: number[][]): number[][] {
     return expanded.filter((p, i, arr) => i === 0 || p[0] !== arr[i-1][0] || p[1] !== arr[i-1][1]);
 }
 
-/** Removes all intermediate nodes on the same line to safely compress points down to corners. */
 function compressStraightLines(path: number[][]): number[][] {
     if (path.length < 3) return path;
     const compressed = [path[0]];

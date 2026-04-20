@@ -1,7 +1,7 @@
 <script lang="ts">
     import { project } from '$lib/store';
     import Canvas from '$lib/components/Canvas.svelte';
-    import type { RunType, Stub } from '$lib/types';
+    import type { RunType, Stub, RunConfig } from '$lib/types';
     import { fly } from 'svelte/transition';
     
     let canvasRef: Canvas;
@@ -12,10 +12,11 @@
         project.update(p => ({ ...p, currentRunId: 'A', currentRunType: 'DAISY_CHAIN' }));
     }
 
-    $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType);
+    $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType, $project.runConfigs);
     
-    function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined) {
+    function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined, runConfigs: Record<string, RunConfig> | undefined) {
         const runsMap: Record<string, { type: RunType; count: number }> = {};
+        const configs = runConfigs || {};
         
         stubs.forEach(s => { 
             if (!runsMap[s.runId]) {
@@ -34,7 +35,12 @@
                 if (data.type === 'HOME_RUN' && displayCount > 0) {
                     displayCount -= 1;
                 }
-                return { id, type: data.type, count: displayCount };
+                return { 
+                    id, 
+                    type: data.type, 
+                    count: displayCount, 
+                    maxOverlap: configs[id]?.maxOverlap ?? 3 
+                };
             })
             .sort((a, b) => a.id.localeCompare(b.id));
     }
@@ -80,16 +86,20 @@
     function deleteRun(runId: string) {
         project.update(p => {
             const remainingStubs = p.stubs.filter(s => s.runId !== runId);
-            const nextRunsList = getRunsList(remainingStubs, undefined, undefined).filter(r => r.id !== runId);
+            const nextRunsList = getRunsList(remainingStubs, undefined, undefined, p.runConfigs).filter(r => r.id !== runId);
             
             const nextCurrentId = nextRunsList.length > 0 ? nextRunsList[0].id : 'A';
             const nextCurrentType = nextRunsList.length > 0 ? nextRunsList[0].type : 'DAISY_CHAIN';
+
+            const newRunConfigs = { ...(p.runConfigs || {}) };
+            delete newRunConfigs[runId];
 
             return {
                 ...p,
                 stubs: remainingStubs,
                 currentRunId: nextCurrentId,
-                currentRunType: nextCurrentType
+                currentRunType: nextCurrentType,
+                runConfigs: newRunConfigs
             };
         });
     }
@@ -114,6 +124,19 @@
         });
     }
 
+    function setRunMaxOverlap(runId: string, maxOverlap: number) {
+        project.update(p => {
+            const runConfigs = p.runConfigs || {};
+            return {
+                ...p,
+                runConfigs: {
+                    ...runConfigs,
+                    [runId]: { ...(runConfigs[runId] || {}), maxOverlap }
+                }
+            };
+        });
+    }
+
     function toggleMenu(menu: 'runs' | 'obstacles' | 'settings') {
         openMenu = openMenu === menu ? null : menu;
     }
@@ -135,7 +158,6 @@
             bind:this={canvasRef} 
             {activeTool} 
             gridResolution={$project.gridResolution || 10} 
-            maxOverlap={$project.maxOverlap || 3} 
         />
     </main>
 
@@ -167,21 +189,10 @@
                             class="select-sm" 
                             title="Grid Resolution" 
                             value={$project.gridResolution || 10} 
-                            on:change={(e) => project.update(p => ({ ...p, gridResolution: Number(e.currentTarget.value) }))}
+                            on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}
                         >
                             {#each resolutions as res (res.value)}
                                 <option value={res.value}>{res.label}</option>
-                            {/each}
-                        </select>
-
-                        <select 
-                            class="select-sm" 
-                            title="Maximum overlapping path lines allowed" 
-                            value={$project.maxOverlap || 3} 
-                            on:change={(e) => project.update(p => ({ ...p, maxOverlap: Number(e.currentTarget.value) }))}
-                        >
-                            {#each maxOverlapOptions as num (num)}
-                                <option value={num}>Max Overlap: {num}</option>
                             {/each}
                         </select>
                     </div>
@@ -243,6 +254,22 @@
                         </div>
 
                         <div class="divider-horizontal"></div>
+                        
+                        <label class="title" style="margin-bottom:0;">
+                            <select 
+                                class="select-sm" 
+                                title="Maximum overlapping path lines allowed for this run" 
+                                value={runsList.find(r => r.id === $project.currentRunId)?.maxOverlap ?? 3} 
+                                on:change={(e) => setRunMaxOverlap($project.currentRunId || 'A', Number((e.currentTarget).value))}
+                            >
+                                {#each maxOverlapOptions as num (num)}
+                                    <option value={num}>{num}</option>
+                                {/each}
+                            </select>
+                            Max Overlap:
+                        </label>
+
+                        <div class="divider-horizontal"></div>
 
                         <button class="btn text-sm danger" on:click={() => deleteRun($project.currentRunId || 'A')}>Delete Run</button>
                     </div>
@@ -264,6 +291,7 @@
 </div>
 
 <style>
+    /* ... (Your original styling remains unchanged) ... */
     :global(body, html) { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background-color: #f3f4f6; color: #111827; }
     
     .app-layout {
@@ -286,13 +314,12 @@
         z-index: 10;
     }
 
-    /* Floating Vertical Toolbar styling */
     .floating-toolbar {
         position: absolute;
         bottom: 24px;
         right: 24px;
         display: flex;
-        flex-direction: column-reverse; /* Reverses order so Pan is visually at the bottom */
+        flex-direction: column-reverse; 
         gap: 12px;
         z-index: 50;
     }
@@ -318,29 +345,27 @@
         justify-content: flex-end;
     }
 
-    /* Expanding Vertical Flyout */
     .flyout {
         position: absolute;
         right: calc(100% + 16px);
-        bottom: 0; /* Anchors the menu bottom so it grows upwards */
+        bottom: 0; 
         background: #ffffff;
         border: 1px solid #d1d5db;
         border-radius: 8px;
         padding: 0.75rem;
         display: flex;
-        flex-direction: column; /* Stack items vertically */
+        flex-direction: column; 
         align-items: stretch;
         gap: 0.5rem;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
         min-width: 180px;
-        max-height: 80vh; /* Keeps it strictly inside the screen viewport */
-        overflow-y: auto; /* Scroll if options exceed screen height */
+        max-height: 80vh; 
+        overflow-y: auto; 
     }
 
     .title { font-weight: 600; color: #374151; font-size: 0.9rem; margin-bottom: 0.25rem; }
     .divider-horizontal { width: 100%; height: 1px; background: #d1d5db; margin: 0.25rem 0; }
 
-    /* Buttons base styles */
     .btn { 
         padding: 0.45rem 0.85rem; 
         border: 1px solid #d1d5db; 
@@ -357,7 +382,6 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn:hover:not(:disabled) { background: #f3f4f6; }
 
-    /* Vertical Primary Menu Buttons */
     .main-btn {
         width: 44px;
         height: 44px;
@@ -406,7 +430,7 @@
 
     .radio-group {
         display: flex;
-        flex-direction: column; /* Changed to column to match vertical flow */
+        flex-direction: column; 
         gap: 0.5rem;
         font-size: 0.8rem;
         color: #374151;

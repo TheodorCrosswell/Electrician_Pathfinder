@@ -22,6 +22,10 @@ export interface Obstruction {
 
 export type StageType = 'SETUP' | 'STUBS' | 'OBSTRUCTIONS' | 'RESULTS';
 
+export interface RunConfig {
+    maxOverlap: number;
+}
+
 export interface ProjectState {
     rawImage: string | null;
     image: string | null;
@@ -31,5 +35,5 @@ export interface ProjectState {
     currentRunId?: string;
     currentRunType?: RunType;
     gridResolution: number;
-    maxOverlap?: number; // <-- NEW: Added to fix Project store errors
+    runConfigs?: Record<string, RunConfig>; // NEW: Stores per-run configs like maxOverlap
 }

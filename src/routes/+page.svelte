@@ -244,7 +244,7 @@
     <!-- ========================== -->
     <div class="project-manager">
         <div class="manager-header">
-            <h1>WirePath Projects</h1>
+            <h1>Your Projects</h1>
             <button class="btn primary new-btn" on:click={createNewProject}>+ New Project</button>
         </div>
         
@@ -286,26 +286,28 @@
             />
         </main>
 
-        <div class="floating-toolbar">
-            {#if $project.stage === 'SETUP'}
-                <div class="setup-panel">
-                    <span class="title setup-title">Setup Floorplan:</span>
-                    {#if $project.rawImage}
-                        <span class="instruction-text">
-                            Drag and resize the blue box to crop. <br/>Use the 🖐️ Pan tool to scroll.
-                        </span>
-                    {/if}
-                    <button class="btn main-btn text-md" on:click={loadTestImage}>Use Test Image</button>
-                    <label class="btn main-btn file-btn text-md">
-                        Upload Floorplan
+        {#if $project.stage === 'SETUP'}
+            <div class="setup-bottom-panel">
+                {#if $project.rawImage}
+                    <span class="instruction-text">
+                        Drag and resize the blue box to crop. Use the 🖐️ Pan tool to scroll.
+                    </span>
+                {/if}
+                <div class="setup-buttons-row">
+                    <button class="btn setup-btn" on:click={loadTestImage}>Test Image</button>
+                    <label class="btn setup-btn file-btn">
+                        Upload
                         <input type="file" accept="image/*" on:change={handleFileUpload} hidden />
                     </label>
-                    <div class="divider-horizontal"></div>
-                    <button class="btn main-btn primary text-md" disabled={!$project.rawImage} on:click={() => canvasRef.flatten()}>
-                        Crop & Lock Image
+                    <button class="btn setup-btn primary" disabled={!$project.rawImage} on:click={() => canvasRef.flatten()}>
+                        Crop & Lock
                     </button>
                 </div>
-            {:else}
+            </div>
+        {/if}
+
+        <div class="floating-toolbar" class:setup-mode={$project.stage === 'SETUP'}>
+            {#if $project.stage !== 'SETUP'}
                 <div class="menu-container">
                     {#if openMenu === 'settings'}
                         <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
@@ -407,11 +409,11 @@
                 <button class="btn main-btn tool-btn" class:active={activeTool === 'stub'} on:click={() => { activeTool = 'stub'; openMenu = null; }}>
                     📍
                 </button>
-
-                <button class="btn main-btn tool-btn" class:active={activeTool === 'pan'} on:click={() => { activeTool = 'pan'; openMenu = null; }}>
-                    🖐️
-                </button>
             {/if}
+
+            <button class="btn main-btn tool-btn" class:active={activeTool === 'pan'} on:click={() => { activeTool = 'pan'; openMenu = null; }}>
+                🖐️
+            </button>
             
             <!-- Home/Exit button -->
             <button class="btn main-btn tool-btn" title="Back to Projects (Saves automatically)" on:click={closeProject}>
@@ -514,6 +516,54 @@
         z-index: 10;
     }
 
+    .setup-bottom-panel {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        background: #ffffff;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border: 1px solid #d1d5db;
+        z-index: 50;
+        width: 90vw;
+        max-width: 600px;
+        box-sizing: border-box;
+    }
+
+    .setup-buttons-row {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+        gap: 0.5rem;
+        justify-content: center;
+    }
+
+    .setup-btn {
+        flex: 1;
+        padding: 0.6rem;
+        font-size: 0.9rem;
+        text-align: center;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+    
+    .instruction-text { 
+        font-size: 0.85rem; 
+        color: #4b5563; 
+        line-height: 1.3; 
+        text-align: center;
+        margin: 0;
+    }
+
     .floating-toolbar {
         position: absolute;
         bottom: 24px;
@@ -524,19 +574,11 @@
         z-index: 50;
     }
 
-    .setup-panel {
-        display: flex;
+    .floating-toolbar.setup-mode {
+        bottom: auto;
+        top: 24px;
         flex-direction: column;
-        gap: 0.75rem;
-        background: #ffffff;
-        padding: 1.25rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        border: 1px solid #d1d5db;
-        max-width: 250px;
     }
-    .setup-title { margin-bottom: 0.25rem; font-size: 1rem; }
-    .instruction-text { font-size: 0.8rem; color: #4b5563; margin-top: -0.5rem; margin-bottom: 0.25rem; line-height: 1.3; }
 
     .menu-container {
         position: relative;
@@ -591,20 +633,12 @@
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    .setup-panel .main-btn {
-        width: auto;
-        height: auto;
-        padding: 0.85rem 1rem;
-        font-size: 0.95rem;
-    }
     .main-btn.active {
         background: #e0e7ff;
         color: #3730a3;
         border-color: #818cf8;
         box-shadow: 0 0 0 1px #818cf8, 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    
-    .text-md { font-size: 0.95rem !important; }
 
     .primary { background: #2563eb; color: white; border: none; }
     .primary:hover:not(:disabled) { background: #1d4ed8; }
@@ -640,4 +674,16 @@
         font-weight: 500;
     }
     .radio-group label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; margin: 0; }
+
+    @media (max-width: 600px) {
+        .setup-bottom-panel {
+            bottom: 16px;
+            padding: 0.75rem;
+            width: calc(100vw - 32px);
+        }
+        .setup-btn {
+            font-size: 0.75rem;
+            padding: 0.5rem 0.25rem;
+        }
+    }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { get } from 'svelte/store';
+    import { SvelteMap } from 'svelte/reactivity';
     import Konva from 'konva';
     import type { KonvaEventObject } from 'konva/lib/Node';
     import { v4 as uuidv4 } from 'uuid';
@@ -41,6 +42,36 @@
     const RUN_COLORS = [
         '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#6366f1', '#a855f7', '#ec4899'
     ];
+
+    // Color conversion & shading helpers
+    function hexToRgb(hex: string): [number, number, number] {
+        const bigint = parseInt(hex.replace('#', ''), 16);
+        return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+    }
+
+    function rgbToHex(r: number, g: number, b: number): string {
+        return "#" + (1 << 24 | (r << 16) | (g << 8) | b).toString(16).slice(1);
+    }
+
+    function getShade(hex: string, index: number, total: number): string {
+        const [r, g, b] = hexToRgb(hex);
+        // factor: 0 (dark) to 1 (light), defaults to 0.5 (base color) if only 1 path
+        const factor = total > 1 ? index / (total - 1) : 0.5;
+        
+        const adjust = (color: number, f: number) => {
+            if (f < 0.5) {
+                // Mix with black: max 30% darker
+                const mix = (0.5 - f) * 2 * 0.3;
+                return Math.round(color * (1 - mix));
+            } else {
+                // Mix with white: max 30% lighter
+                const mix = (f - 0.5) * 2 * 0.3;
+                return Math.round(color + (255 - color) * mix);
+            }
+        };
+        
+        return rgbToHex(adjust(r, factor), adjust(g, factor), adjust(b, factor));
+    }
     
     $: if (stage) {
         stage.draggable(activeTool === 'pan');
@@ -336,12 +367,81 @@
         pathLayer.destroyChildren();
         if ((state.stage as string) !== 'SETUP') {
             const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, state.runConfigs || {});
+            
+            interface PathData {
+                points: number[];
+                runId: string;
+                orderIndex: number;
+            }
+            
+            const mappedPaths: PathData[] = [];
+
+            // Correlate paths to runs using proximity to stubs, then order them
             paths.forEach((p) => {
-                const flatPath = p.reduce((acc, val) => acc.concat(val), []);
-                const line = new Konva.Line({
-                    points: flatPath, stroke: '#10b981', strokeWidth: 4, lineJoin: 'round', tension: 0
+                if (!p || p.length === 0) return;
+                const flatPath = p.reduce<number[]>((acc, val) => acc.concat(val), []);
+
+                const startX = p[0][0];
+                const startY = p[0][1];
+                const endX = p[p.length - 1][0];
+                const endY = p[p.length - 1][1];
+
+                let stubStart: Stub | null = null;
+                let stubEnd: Stub | null = null;
+                let minStartDist = Infinity;
+                let minEndDist = Infinity;
+
+                state.stubs.forEach(s => {
+                    const dStart = Math.hypot(s.x - startX, s.y - startY);
+                    if (dStart < minStartDist) { minStartDist = dStart; stubStart = s; }
+
+                    const dEnd = Math.hypot(s.x - endX, s.y - endY);
+                    if (dEnd < minEndDist) { minEndDist = dEnd; stubEnd = s; }
                 });
-                pathLayer.add(line);
+
+                if (stubStart && stubEnd) {
+                    const s1 = stubStart as Stub;
+                    const s2 = stubEnd as Stub;
+                    const runId = s1.runId;
+                    // Box acts as index 0 when determining chronological order
+                    const idx1 = s1.isBox ? 0 : s1.index;
+                    const idx2 = s2.isBox ? 0 : s2.index;
+                    const orderIndex = Math.max(idx1, idx2);
+
+                    mappedPaths.push({ points: flatPath, runId, orderIndex });
+                } else {
+                    mappedPaths.push({ points: flatPath, runId: 'UNKNOWN', orderIndex: 0 });
+                }
+            });
+
+            const pathsByRun = new SvelteMap<string, PathData[]>();
+            mappedPaths.forEach(mp => {
+                const arr = pathsByRun.get(mp.runId) || [];
+                arr.push(mp);
+                pathsByRun.set(mp.runId, arr);
+            });
+
+            pathsByRun.forEach((runPaths, runId) => {
+                // Sort paths incrementally
+                runPaths.sort((a, b) => a.orderIndex - b.orderIndex);
+
+                const runIndex = uniqueRunIds.indexOf(runId);
+                const baseColor = runIndex !== -1 
+                    ? RUN_COLORS[runIndex % RUN_COLORS.length] 
+                    : '#10b981';
+
+                runPaths.forEach((mp, i) => {
+                    const strokeColor = getShade(baseColor, i, runPaths.length);
+
+                    const line = new Konva.Line({
+                        points: mp.points,
+                        stroke: strokeColor,
+                        strokeWidth: 4,
+                        lineJoin: 'round',
+                        tension: 0
+                    });
+                    pathLayer.add(line);
+                });
             });
         }
 

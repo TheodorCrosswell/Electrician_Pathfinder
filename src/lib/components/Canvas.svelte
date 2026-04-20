@@ -267,6 +267,9 @@
 
                 bgLayer.batchDraw();
                 stage.batchDraw();
+                
+                // Force a reactive state update so the pathfinder has access to the now-loaded image's true dimensions
+                project.update(p => ({ ...p }));
             };
         }
 
@@ -369,7 +372,33 @@
 
         pathLayer.destroyChildren();
         if ((state.stage as string) !== 'SETUP') {
-            const paths = calculatePaths(state.stubs, state.obstructions, gridResolution, state.runConfigs || {});
+            
+            // Dynamically calculate Grid dimensions based on the cropped canvas true size 
+            let canvasWidth: number;
+            let canvasHeight: number;
+
+            const flatImg = bgLayer.findOne('.flattened') as Konva.Image | undefined;
+            const nativeImg = flatImg?.image() as HTMLImageElement | undefined;
+            
+            if (nativeImg && typeof nativeImg.width === 'number') {
+                canvasWidth = nativeImg.width;
+                canvasHeight = nativeImg.height;
+            } else {
+                // If it evaluates before the initial load logic, formulate bounding fallbacks based on element distances
+                let maxX = 800, maxY = 600;
+                state.stubs.forEach(s => {
+                    if (s.x > maxX) maxX = s.x;
+                    if (s.y > maxY) maxY = s.y;
+                });
+                state.obstructions.forEach(o => {
+                    if (o.x + o.w > maxX) maxX = o.x + o.w;
+                    if (o.y + o.h > maxY) maxY = o.y + o.h;
+                });
+                canvasWidth = maxX + 100;
+                canvasHeight = maxY + 100;
+            }
+
+            const paths = calculatePaths(state.stubs, state.obstructions, canvasWidth, canvasHeight, gridResolution, state.runConfigs || {});
             
             interface PathData {
                 points: number[];

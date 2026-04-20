@@ -2,19 +2,20 @@
 import * as PF from 'pathfinding';
 import type { Stub, Obstruction, RunConfig } from './types';
 
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
-
 export function calculatePaths(
     stubs: Stub[], 
     obstructions: Obstruction[], 
+    width: number,
+    height: number,
     cellSize: number = 10,
     runConfigs: Record<string, RunConfig> = {} 
 ): number[][][] {
     if (stubs.length < 2) return [];
 
-    const cols = Math.ceil(CANVAS_WIDTH / cellSize);
-    const rows = Math.ceil(CANVAS_HEIGHT / cellSize);
+    // Use dynamically passed dimensions instead of hardcoded 800x600.
+    // Ensure we always have at least a 1x1 grid to prevent AStarFinder crashes on zero bounds.
+    const cols = Math.max(1, Math.ceil(width / cellSize));
+    const rows = Math.max(1, Math.ceil(height / cellSize));
     const grid = new PF.Grid(cols, rows);
     
     // Track how many paths pass through each individual cell

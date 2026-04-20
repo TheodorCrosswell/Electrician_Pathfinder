@@ -12,7 +12,7 @@ export class AppDB extends Dexie {
     projects!: Table<ProjectRecord, string>;
 
     constructor() {
-        super('WirePathDB');
+        super('ElectricianPathfinderDB');
         this.version(1).stores({
             projects: 'id, updatedAt' // Primary key and indexed props
         });

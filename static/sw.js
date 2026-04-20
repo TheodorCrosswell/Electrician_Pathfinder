@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wirepath-pwa-v1';
+const CACHE_NAME = 'electrician-pathfinder-pwa-v1';
 
 self.addEventListener('install', (event) => {
     // Force the waiting service worker to become the active service worker

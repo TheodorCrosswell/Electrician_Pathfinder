@@ -25,18 +25,17 @@
         loadProjects();
     });
 
-    async function loadProjects() {
+    async function loadProjects(): Promise<void> {
         savedProjects = await db.projects.orderBy('updatedAt').reverse().toArray();
     }
 
-    async function createNewProject() {
+    async function createNewProject(): Promise<void> {
         const name = prompt("Enter project name:") || "Untitled Project";
         const newId = uuidv4();
         
         // Setup initial default empty state
         const initialState: ProjectState = {
             stage: 'SETUP',
-            
             rawImage: null,
             image: null,
             stubs: [],
@@ -58,24 +57,24 @@
         openProject(newId, initialState);
     }
 
-    function openProject(id: string, state: ProjectState) {
+    function openProject(id: string, state: ProjectState): void {
         project.set(state);
         currentProjectId = id;
     }
 
-    async function deleteProject(id: string) {
+    async function deleteProject(id: string): Promise<void> {
         if (confirm("Are you sure you want to delete this project?")) {
             await db.projects.delete(id);
             await loadProjects();
         }
     }
 
-    function closeProject() {
+    function closeProject(): void {
         currentProjectId = null;
         loadProjects();
     }
 
-    function triggerAutoSave(id: string, state: ProjectState) {
+    function triggerAutoSave(id: string, state: ProjectState): void {
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
             db.projects.update(id, {
@@ -91,6 +90,36 @@
     // Auto-save logic: Debounced save when $project changes
     $: if (currentProjectId && $project) {
         triggerAutoSave(currentProjectId, $project);
+    }
+
+    // -- PWA Update Logic --
+    async function updateApp(): Promise<void> {
+        if (!navigator.onLine) {
+            alert("You are currently offline. Please connect to the internet to update.");
+            return;
+        }
+
+        if (!confirm("Update app to the latest version? This will clear the cache and reload the page.")) return;
+
+        try {
+            // Clear all PWA caches
+            if ('caches' in window) {
+                const cacheKeys: string[] = await caches.keys();
+                await Promise.all(cacheKeys.map(key => caches.delete(key)));
+            }
+
+            // Unregister service workers to force a fresh install on reload
+            if ('serviceWorker' in navigator) {
+                const registrations: readonly ServiceWorkerRegistration[] = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(reg => reg.unregister()));
+            }
+
+            // Reload the page to fetch the new version from the network
+            window.location.reload();
+        } catch (error) {
+            console.error("Failed to update app:", error);
+            alert("Error updating the app. Please refresh the page manually.");
+        }
     }
 
     // -- Existing Logic --
@@ -131,7 +160,7 @@
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 
-    function handleFileUpload(e: Event) {
+    function handleFileUpload(e: Event): void {
         const target = e.target as HTMLInputElement;
         const file = target.files?.[0];
         if (!file) return;
@@ -144,7 +173,7 @@
         reader.readAsDataURL(file);
     }
 
-    async function loadTestImage() {
+    async function loadTestImage(): Promise<void> {
         const response = await fetch('/test-floorplan.jpg');
         const blob = await response.blob();
         const reader = new FileReader();
@@ -154,14 +183,14 @@
         reader.readAsDataURL(blob);
     }
 
-    function getNextRunId(stubs: Stub[]) {
+    function getNextRunId(stubs: Stub[]): string {
         if (stubs.length === 0) return 'A';
         const runs = [...new Set(stubs.map(s => s.runId))];
         const lastRun = runs.sort().pop() || 'A';
         return String.fromCharCode(lastRun.charCodeAt(0) + 1);
     }
 
-    function handleNewRun() {
+    function handleNewRun(): void {
         project.update(p => ({
             ...p,
             currentRunId: getNextRunId(p.stubs),
@@ -169,7 +198,7 @@
         }));
     }
 
-    function deleteRun(runId: string) {
+    function deleteRun(runId: string): void {
         project.update(p => {
             const remainingStubs = p.stubs.filter(s => s.runId !== runId);
             const nextRunsList = getRunsList(remainingStubs, undefined, undefined, p.runConfigs).filter(r => r.id !== runId);
@@ -190,11 +219,11 @@
         });
     }
 
-    function selectRun(runId: string, runType: RunType) {
+    function selectRun(runId: string, runType: RunType): void {
         project.update(p => ({ ...p, currentRunId: runId, currentRunType: runType }));
     }
 
-    function setRunType(type: RunType) {
+    function setRunType(type: RunType): void {
         project.update(p => {
             const currentId = p.currentRunId || 'A';
             let currentStubs = p.stubs;
@@ -210,7 +239,7 @@
         });
     }
 
-    function setRunMaxOverlap(runId: string, maxOverlap: number) {
+    function setRunMaxOverlap(runId: string, maxOverlap: number): void {
         project.update(p => {
             const runConfigs = p.runConfigs || {};
             return {
@@ -223,7 +252,7 @@
         });
     }
 
-    function toggleMenu(menu: 'runs' | 'obstacles' | 'settings') {
+    function toggleMenu(menu: 'runs' | 'obstacles' | 'settings'): void {
         openMenu = openMenu === menu ? null : menu;
     }
 
@@ -245,7 +274,12 @@
     <div class="project-manager">
         <div class="manager-header">
             <h1>Your Projects</h1>
-            <button class="btn primary new-btn" on:click={createNewProject}>+ New Project</button>
+            <div class="header-actions">
+                <button class="btn primary new-btn" on:click={createNewProject}>+ New Project</button>
+                <button class="btn update-btn" on:click={updateApp} title="Fetch the latest version of the app">
+                    Update
+                </button>
+            </div>
         </div>
         
         <div class="project-grid">
@@ -447,6 +481,11 @@
         font-size: 1.8rem;
         color: #1f2937;
     }
+    .header-actions {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
     .new-btn { font-size: 1rem; padding: 0.6rem 1.2rem; }
     
     .project-grid {
@@ -645,6 +684,8 @@
 
     .danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
     .danger:hover:not(:disabled) { background: #fecaca; }
+
+    .update-btn { font-size: 1rem; padding: 0.6rem 1.2rem; }
 
     .text-sm { font-size: 0.75rem; padding: 0.35rem 0.6rem; }
     .file-btn { margin: 0; cursor: pointer; display: flex; text-align: center; justify-content: center; }

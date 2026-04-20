@@ -1,18 +1,104 @@
 <script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
+    import { v4 as uuidv4 } from 'uuid';
     import { project } from '$lib/store';
     import Canvas from '$lib/components/Canvas.svelte';
-    import type { RunType, Stub, RunConfig } from '$lib/types';
+    import type { RunType, Stub, RunConfig, ProjectState } from '$lib/types';
     import { fly } from 'svelte/transition';
+    import { db, type ProjectRecord } from '$lib/db';
     
+    // -- Project Management State --
+    let currentProjectId: string | null = null;
+    let savedProjects: ProjectRecord[] = [];
+    let saveTimeout: ReturnType<typeof setTimeout>;
+
+    onDestroy(() => {
+        clearTimeout(saveTimeout);
+    });
+
+    // -- Editor State --
     let canvasRef: Canvas;
     let activeTool = 'stub';
     let openMenu: 'runs' | 'obstacles' | 'settings' | null = null;
 
-    $: if ($project.currentRunId === undefined) {
+    onMount(() => {
+        loadProjects();
+    });
+
+    async function loadProjects() {
+        savedProjects = await db.projects.orderBy('updatedAt').reverse().toArray();
+    }
+
+    async function createNewProject() {
+        const name = prompt("Enter project name:") || "Untitled Project";
+        const newId = uuidv4();
+        
+        // Setup initial default empty state
+        const initialState: ProjectState = {
+            stage: 'SETUP',
+            
+            rawImage: null,
+            image: null,
+            stubs: [],
+            obstructions: [],
+            gridResolution: 10,
+            currentRunId: 'A',
+            currentRunType: 'DAISY_CHAIN',
+            runConfigs: {}
+        };
+        
+        await db.projects.put({
+            id: newId,
+            name,
+            updatedAt: Date.now(),
+            state: initialState
+        });
+        
+        await loadProjects();
+        openProject(newId, initialState);
+    }
+
+    function openProject(id: string, state: ProjectState) {
+        project.set(state);
+        currentProjectId = id;
+    }
+
+    async function deleteProject(id: string) {
+        if (confirm("Are you sure you want to delete this project?")) {
+            await db.projects.delete(id);
+            await loadProjects();
+        }
+    }
+
+    function closeProject() {
+        currentProjectId = null;
+        loadProjects();
+    }
+
+    function triggerAutoSave(id: string, state: ProjectState) {
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            db.projects.update(id, {
+                updatedAt: Date.now(),
+                state: state
+            }).then(() => {
+                // Silently refresh list for correct last edited time when we return
+                db.projects.orderBy('updatedAt').reverse().toArray().then(res => savedProjects = res);
+            });
+        }, 1000);
+    }
+
+    // Auto-save logic: Debounced save when $project changes
+    $: if (currentProjectId && $project) {
+        triggerAutoSave(currentProjectId, $project);
+    }
+
+    // -- Existing Logic --
+    $: if ($project && $project.currentRunId === undefined) {
         project.update(p => ({ ...p, currentRunId: 'A', currentRunType: 'DAISY_CHAIN' }));
     }
 
-    $: runsList = getRunsList($project.stubs, $project.currentRunId, $project.currentRunType, $project.runConfigs);
+    $: runsList = $project ? getRunsList($project.stubs, $project.currentRunId, $project.currentRunType, $project.runConfigs) : [];
     
     function getRunsList(stubs: Stub[], currentId: string | undefined, currentType: RunType | undefined, runConfigs: Record<string, RunConfig> | undefined) {
         const runsMap: Record<string, { type: RunType; count: number }> = {};
@@ -152,148 +238,262 @@
 
 </script>
 
-<div class="app-layout">
-    <main class="canvas-area">
-        <Canvas 
-            bind:this={canvasRef} 
-            {activeTool} 
-            gridResolution={$project.gridResolution || 10} 
-        />
-    </main>
-
-    <div class="floating-toolbar">
-        {#if $project.stage === 'SETUP'}
-            <div class="setup-panel">
-                <span class="title setup-title">Setup Floorplan:</span>
-                {#if $project.rawImage}
-                    <span class="instruction-text">
-                        Drag and resize the blue box to crop. <br/>Use the 🖐️ Pan tool to scroll.
-                    </span>
-                {/if}
-                <button class="btn main-btn" on:click={loadTestImage}>Use Test Image</button>
-                <label class="btn main-btn file-btn">
-                    Upload Floorplan
-                    <input type="file" accept="image/*" on:change={handleFileUpload} hidden />
-                </label>
-                <div class="divider-horizontal"></div>
-                <button class="btn main-btn primary" disabled={!$project.rawImage} on:click={() => canvasRef.flatten()}>
-                    Crop & Lock Image
-                </button>
-            </div>
-        {:else}
-            <div class="menu-container">
-                {#if openMenu === 'settings'}
-                    <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
-                        <span class="title">Settings:</span>
-                        <select 
-                            class="select-sm" 
-                            title="Grid Resolution" 
-                            value={$project.gridResolution || 10} 
-                            on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}
-                        >
-                            {#each resolutions as res (res.value)}
-                                <option value={res.value}>{res.label}</option>
-                            {/each}
-                        </select>
+{#if !currentProjectId}
+    <!-- ========================== -->
+    <!--     PROJECT MANAGER UI     -->
+    <!-- ========================== -->
+    <div class="project-manager">
+        <div class="manager-header">
+            <h1>WirePath Projects</h1>
+            <button class="btn primary new-btn" on:click={createNewProject}>+ New Project</button>
+        </div>
+        
+        <div class="project-grid">
+            {#each savedProjects as p (p.id)}
+                <div class="project-card">
+                    <div class="card-info">
+                        <h3>{p.name}</h3>
+                        <p>Last edited: {new Date(p.updatedAt).toLocaleString()}</p>
+                        <span class="badge">
+                            {p.state.stubs?.length || 0} Stubs • {p.state.stage === 'SETUP' ? 'Setup' : 'Ready'}
+                        </span>
                     </div>
-                {/if}
-                <button class="btn main-btn" class:active={openMenu === 'settings'} on:click={() => toggleMenu('settings')}>
-                    ⚙️
-                    </button>
-            </div>
-
-            <div class="menu-container">
-                {#if openMenu === 'obstacles'}
-                    <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
-                        <span class="title">Obstacles:</span>
-                        <button class="btn tool-btn" class:active={activeTool === 'rectangle'} on:click={() => activeTool = 'rectangle'}>Rectangle</button>
-                        <button class="btn tool-btn" class:active={activeTool === 'vh_line'} on:click={() => activeTool = 'vh_line'}>Straight H/V Line</button>
-                        <button class="btn tool-btn" class:active={activeTool === 'line'} on:click={() => activeTool = 'line'}>Straight Line</button>
-                        <button class="btn tool-btn" class:active={activeTool === 'freehand'} on:click={() => activeTool = 'freehand'}>Freehand</button>
-                        <button class="btn tool-btn" class:active={activeTool === 'circle'} on:click={() => activeTool = 'circle'}>Circle</button>
-                        <button class="btn tool-btn" class:active={activeTool === 'oval'} on:click={() => activeTool = 'oval'}>Oval</button>
+                    <div class="card-actions">
+                        <button class="btn main-action" on:click={() => openProject(p.id, p.state)}>Open</button>
+                        <button class="btn danger" on:click={() => deleteProject(p.id)}>Delete</button>
                     </div>
-                {/if}
-                <button class="btn main-btn" class:active={openMenu === 'obstacles' || ['rectangle', 'vh_line', 'line', 'freehand', 'circle', 'oval'].includes(activeTool)} on:click={() => toggleMenu('obstacles')}>
-                    🚧 
+                </div>
+            {/each}
+            
+            {#if savedProjects.length === 0}
+                <div class="empty-state">
+                    <span style="font-size: 2rem;">📂</span>
+                    <p>No projects found. Create one to get started!</p>
+                </div>
+            {/if}
+        </div>
+    </div>
+{:else}
+    <!-- ========================== -->
+    <!--        APP LAYOUT UI       -->
+    <!-- ========================== -->
+    <div class="app-layout">
+        <main class="canvas-area">
+            <Canvas 
+                bind:this={canvasRef} 
+                {activeTool} 
+                gridResolution={$project.gridResolution || 10} 
+            />
+        </main>
+
+        <div class="floating-toolbar">
+            {#if $project.stage === 'SETUP'}
+                <div class="setup-panel">
+                    <span class="title setup-title">Setup Floorplan:</span>
+                    {#if $project.rawImage}
+                        <span class="instruction-text">
+                            Drag and resize the blue box to crop. <br/>Use the 🖐️ Pan tool to scroll.
+                        </span>
+                    {/if}
+                    <button class="btn main-btn text-md" on:click={loadTestImage}>Use Test Image</button>
+                    <label class="btn main-btn file-btn text-md">
+                        Upload Floorplan
+                        <input type="file" accept="image/*" on:change={handleFileUpload} hidden />
+                    </label>
+                    <div class="divider-horizontal"></div>
+                    <button class="btn main-btn primary text-md" disabled={!$project.rawImage} on:click={() => canvasRef.flatten()}>
+                        Crop & Lock Image
                     </button>
-            </div>
-
-            <div class="menu-container">
-                {#if openMenu === 'runs'}
-                    <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
-                        <span class="title">Runs:</span>
-                        <select class="select-sm" value={$project.currentRunId} on:change={(e) => {
-                            const val = (e.currentTarget).value;
-                            const run = runsList.find(r => r.id === val);
-                            if (run) {
-                                selectRun(run.id, run.type);
-                                activeTool = 'stub';
-                            }
-                        }}>
-                            {#each runsList as run (run.id)}
-                                <option value={run.id}>
-                                    Run {run.id} ({run.count} {run.count === 1 ? 'stub' : 'stubs'}, {run.type === 'HOME_RUN' ? 'Home Run' : 'Daisy Chain'})
-                                </option>
-                            {/each}
-                        </select>
-
-                        <button class="btn text-sm" on:click={() => { handleNewRun(); activeTool = 'stub'; }}>+ New</button>
-
-                        <div class="divider-horizontal"></div>
-
-                        <div class="radio-group">
-                            <label>
-                                <input type="radio" name="runType" checked={$project.currentRunType === 'HOME_RUN'} on:change={() => setRunType('HOME_RUN')} /> 
-                                Home Run
-                            </label>
-                            <label>
-                                <input type="radio" name="runType" checked={$project.currentRunType !== 'HOME_RUN'} on:change={() => setRunType('DAISY_CHAIN')} /> 
-                                Daisy Chain
-                            </label>
-                        </div>
-
-                        <div class="divider-horizontal"></div>
-                        
-                        <label class="title" style="margin-bottom:0;">
+                </div>
+            {:else}
+                <div class="menu-container">
+                    {#if openMenu === 'settings'}
+                        <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
+                            <span class="title">Settings:</span>
                             <select 
                                 class="select-sm" 
-                                title="Maximum overlapping path lines allowed for this run" 
-                                value={runsList.find(r => r.id === $project.currentRunId)?.maxOverlap ?? 3} 
-                                on:change={(e) => setRunMaxOverlap($project.currentRunId || 'A', Number((e.currentTarget).value))}
+                                title="Grid Resolution" 
+                                value={$project.gridResolution || 10} 
+                                on:change={(e) => project.update(p => ({ ...p, gridResolution: Number((e.currentTarget).value) }))}
                             >
-                                {#each maxOverlapOptions as num (num)}
-                                    <option value={num}>{num}</option>
+                                {#each resolutions as res (res.value)}
+                                    <option value={res.value}>{res.label}</option>
                                 {/each}
                             </select>
-                            Max Overlap:
-                        </label>
-
-                        <div class="divider-horizontal"></div>
-
-                        <button class="btn text-sm danger" on:click={() => deleteRun($project.currentRunId || 'A')}>Delete Run</button>
-                    </div>
-                {/if}
-                <button class="btn main-btn" class:active={openMenu === 'runs'} on:click={() => toggleMenu('runs')}>
-                    📋
+                        </div>
+                    {/if}
+                    <button class="btn main-btn" class:active={openMenu === 'settings'} on:click={() => toggleMenu('settings')}>
+                        ⚙️
                     </button>
-            </div>
+                </div>
 
-            <button class="btn main-btn tool-btn" class:active={activeTool === 'stub'} on:click={() => { activeTool = 'stub'; openMenu = null; }}>
-                📍
+                <div class="menu-container">
+                    {#if openMenu === 'obstacles'}
+                        <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
+                            <span class="title">Obstacles:</span>
+                            <button class="btn tool-btn" class:active={activeTool === 'rectangle'} on:click={() => activeTool = 'rectangle'}>Rectangle</button>
+                            <button class="btn tool-btn" class:active={activeTool === 'vh_line'} on:click={() => activeTool = 'vh_line'}>Straight H/V Line</button>
+                            <button class="btn tool-btn" class:active={activeTool === 'line'} on:click={() => activeTool = 'line'}>Straight Line</button>
+                            <button class="btn tool-btn" class:active={activeTool === 'freehand'} on:click={() => activeTool = 'freehand'}>Freehand</button>
+                            <button class="btn tool-btn" class:active={activeTool === 'circle'} on:click={() => activeTool = 'circle'}>Circle</button>
+                            <button class="btn tool-btn" class:active={activeTool === 'oval'} on:click={() => activeTool = 'oval'}>Oval</button>
+                        </div>
+                    {/if}
+                    <button class="btn main-btn" class:active={openMenu === 'obstacles' || ['rectangle', 'vh_line', 'line', 'freehand', 'circle', 'oval'].includes(activeTool)} on:click={() => toggleMenu('obstacles')}>
+                        🚧 
+                    </button>
+                </div>
+
+                <div class="menu-container">
+                    {#if openMenu === 'runs'}
+                        <div class="flyout" transition:fly={{ x: 20, duration: 200 }}>
+                            <span class="title">Runs:</span>
+                            <select class="select-sm" value={$project.currentRunId} on:change={(e) => {
+                                const val = (e.currentTarget).value;
+                                const run = runsList.find(r => r.id === val);
+                                if (run) {
+                                    selectRun(run.id, run.type);
+                                    activeTool = 'stub';
+                                }
+                            }}>
+                                {#each runsList as run (run.id)}
+                                    <option value={run.id}>
+                                        Run {run.id} ({run.count} {run.count === 1 ? 'stub' : 'stubs'}, {run.type === 'HOME_RUN' ? 'Home Run' : 'Daisy Chain'})
+                                    </option>
+                                {/each}
+                            </select>
+
+                            <button class="btn text-sm" on:click={() => { handleNewRun(); activeTool = 'stub'; }}>+ New</button>
+
+                            <div class="divider-horizontal"></div>
+
+                            <div class="radio-group">
+                                <label>
+                                    <input type="radio" name="runType" checked={$project.currentRunType === 'HOME_RUN'} on:change={() => setRunType('HOME_RUN')} /> 
+                                    Home Run
+                                </label>
+                                <label>
+                                    <input type="radio" name="runType" checked={$project.currentRunType !== 'HOME_RUN'} on:change={() => setRunType('DAISY_CHAIN')} /> 
+                                    Daisy Chain
+                                </label>
+                            </div>
+
+                            <div class="divider-horizontal"></div>
+                            
+                            <label class="title" style="margin-bottom:0;">
+                                <select 
+                                    class="select-sm" 
+                                    title="Maximum overlapping path lines allowed for this run" 
+                                    value={runsList.find(r => r.id === $project.currentRunId)?.maxOverlap ?? 3} 
+                                    on:change={(e) => setRunMaxOverlap($project.currentRunId || 'A', Number((e.currentTarget).value))}
+                                >
+                                    {#each maxOverlapOptions as num (num)}
+                                        <option value={num}>{num}</option>
+                                    {/each}
+                                </select>
+                                Max Overlap:
+                            </label>
+
+                            <div class="divider-horizontal"></div>
+
+                            <button class="btn text-sm danger" on:click={() => deleteRun($project.currentRunId || 'A')}>Delete Run</button>
+                        </div>
+                    {/if}
+                    <button class="btn main-btn" class:active={openMenu === 'runs'} on:click={() => toggleMenu('runs')}>
+                        📋
+                    </button>
+                </div>
+
+                <button class="btn main-btn tool-btn" class:active={activeTool === 'stub'} on:click={() => { activeTool = 'stub'; openMenu = null; }}>
+                    📍
                 </button>
 
-            <button class="btn main-btn tool-btn" class:active={activeTool === 'pan'} on:click={() => { activeTool = 'pan'; openMenu = null; }}>
-                🖐️
+                <button class="btn main-btn tool-btn" class:active={activeTool === 'pan'} on:click={() => { activeTool = 'pan'; openMenu = null; }}>
+                    🖐️
                 </button>
-        {/if}
+            {/if}
+            
+            <!-- Home/Exit button -->
+            <button class="btn main-btn tool-btn" title="Back to Projects (Saves automatically)" on:click={closeProject}>
+                🏠
+            </button>
+        </div>
     </div>
-</div>
+{/if}
 
 <style>
-    /* ... (Your original styling remains unchanged) ... */
     :global(body, html) { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background-color: #f3f4f6; color: #111827; }
     
+    /* === PROJECT MANAGER STYLES === */
+    .project-manager {
+        width: 100vw;
+        height: 100vh;
+        overflow-y: auto;
+        padding: 2.5rem 5vw;
+        box-sizing: border-box;
+    }
+    .manager-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2.5rem;
+        border-bottom: 2px solid #e5e7eb;
+        padding-bottom: 1rem;
+    }
+    .manager-header h1 {
+        margin: 0;
+        font-size: 1.8rem;
+        color: #1f2937;
+    }
+    .new-btn { font-size: 1rem; padding: 0.6rem 1.2rem; }
+    
+    .project-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+    .project-card {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .project-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 12px rgba(0,0,0,0.05);
+    }
+    .card-info h3 { margin: 0 0 0.5rem 0; font-size: 1.25rem; }
+    .card-info p { margin: 0 0 0.75rem 0; font-size: 0.85rem; color: #6b7280; }
+    .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        background: #f3f4f6;
+        color: #4b5563;
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-weight: 500;
+    }
+    .card-actions { display: flex; gap: 0.5rem; }
+    .card-actions .btn { flex: 1; }
+    .main-action { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+    .main-action:hover { background: #dbeafe !important; }
+    
+    .empty-state {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 4rem 1rem;
+        background: #fff;
+        border-radius: 12px;
+        border: 2px dashed #d1d5db;
+        color: #6b7280;
+    }
+
+    /* === EXISTING CANVAS/APP STYLES === */
     .app-layout {
         position: relative;
         width: 100vw;
@@ -403,6 +603,8 @@
         border-color: #818cf8;
         box-shadow: 0 0 0 1px #818cf8, 0 2px 4px rgba(0, 0, 0, 0.05);
     }
+    
+    .text-md { font-size: 0.95rem !important; }
 
     .primary { background: #2563eb; color: white; border: none; }
     .primary:hover:not(:disabled) { background: #1d4ed8; }

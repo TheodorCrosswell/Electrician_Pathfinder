@@ -4,11 +4,14 @@
 
 	onMount(() => {
 		if ('serviceWorker' in navigator) {
-		navigator.serviceWorker.register('/sw.js');
+		    navigator.serviceWorker.register('/sw.js').catch(console.error);
 		}
 	});
 	let { children } = $props();
 </script>
 
-<svelte:head></svelte:head>
+<svelte:head>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#2563eb" />
+</svelte:head>
 {@render children()}

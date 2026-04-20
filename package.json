@@ -39,6 +39,7 @@
 	},
 	"dependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",
+		"dexie": "^4.4.2",
 		"konva": "^10.2.5",
 		"pathfinding": "^0.4.18",
 		"uuid": "^13.0.0",
